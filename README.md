@@ -7,8 +7,7 @@
 
 # Инструмент «Решала» 🚀
 
-![Лого Решалы](https://raw.githubusercontent.com/DonMatteoVPN/Reshala-Remnawave-Bedolaga/main/assets/reshala-logo.jpg)
-![Дашборд](https://raw.githubusercontent.com/DonMatteoVPN/Reshala-Remnawave-Bedolaga/refs/heads/main/assets/dashbord.png)
+![Лого Решалы](https://raw.githubusercontent.com/DonMatteoVPN/Reshala-Remnawave-Bedolaga/main/static/awesome/reshala-logo.webp)
 
 <p align="center">
   <br>
