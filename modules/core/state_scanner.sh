@@ -175,19 +175,21 @@ scan_remnawave_state() {
     fi
 
     local is_panel=0
+    local is_subpage=0
     local is_node=0
     local has_foreign=0
     local panel_container=""
     local node_container=""
+    local subpage_container=""
 
     while IFS= read -r name; do
-        if [[ "$name" == "remnawave-backend"* ]] || [[ "$name" == "remnawave-subscription-page"* ]]; then
+        if [[ "$name" == "remnawave-backend"* ]]; then
             is_panel=1
-            if [[ "$name" == *"backend"* ]]; then
-                panel_container="$name"
-            elif [ -z "$panel_container" ]; then
-                panel_container="$name"
-            fi
+            panel_container="$name"
+        elif [[ "$name" == "remnawave-subscription-page"* ]]; then
+            # Страница подписки — это НЕ панель управления, отдельный сервис
+            is_subpage=1
+            subpage_container="$name"
         elif [[ "$name" == "remnanode"* ]]; then
             is_node=1
             node_container="$name"
@@ -200,20 +202,49 @@ scan_remnawave_state() {
         fi
     done <<< "$container_names"
 
-    if [ $is_panel -eq 1 ] && [ $is_node -eq 1 ]; then
+    if [ $is_panel -eq 1 ] && [ $is_node -eq 1 ] && [ $is_subpage -eq 1 ]; then
+        SERVER_TYPE="Панель, Нода и Sub-page"
+        PANEL_NODE_PATH=$(run_cmd docker inspect --format='{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$panel_container" 2>/dev/null)
+        local raw_p_ver; raw_p_ver=$(_state_get_panel_version_from_logs)
+        PANEL_VERSION=$(_state_clean_version "$raw_p_ver")
+        local raw_n_ver; raw_n_ver=$(_state_get_node_version_from_logs "$node_container")
+        NODE_VERSION=$(_state_clean_version "$raw_n_ver")
+
+    elif [ $is_panel -eq 1 ] && [ $is_node -eq 1 ]; then
         SERVER_TYPE="Панель и Нода"
         PANEL_NODE_PATH=$(run_cmd docker inspect --format='{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$panel_container" 2>/dev/null)
         local raw_p_ver; raw_p_ver=$(_state_get_panel_version_from_logs)
         PANEL_VERSION=$(_state_clean_version "$raw_p_ver")
-
         local raw_n_ver; raw_n_ver=$(_state_get_node_version_from_logs "$node_container")
         NODE_VERSION=$(_state_clean_version "$raw_n_ver")
+
+    elif [ $is_panel -eq 1 ] && [ $is_subpage -eq 1 ]; then
+        SERVER_TYPE="Панель + Sub-page"
+        PANEL_NODE_PATH=$(run_cmd docker inspect --format='{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$panel_container" 2>/dev/null)
+        local raw_p_ver; raw_p_ver=$(_state_get_panel_version_from_logs)
+        PANEL_VERSION=$(_state_clean_version "$raw_p_ver")
 
     elif [ $is_panel -eq 1 ]; then
         SERVER_TYPE="Панель"
         PANEL_NODE_PATH=$(run_cmd docker inspect --format='{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$panel_container" 2>/dev/null)
         local raw_p_ver; raw_p_ver=$(_state_get_panel_version_from_logs)
         PANEL_VERSION=$(_state_clean_version "$raw_p_ver")
+
+    elif [ $is_subpage -eq 1 ] && [ $is_node -eq 1 ]; then
+        SERVER_TYPE="Sub-page и Нода"
+        PANEL_NODE_PATH=$(run_cmd docker inspect --format='{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$subpage_container" 2>/dev/null)
+        local raw_sub_ver
+        raw_sub_ver=$(run_cmd docker logs "$subpage_container" 2>/dev/null | grep -oE 'Remnawave Subscription Page v[0-9.]*' | tail -n 1 | sed 's/Remnawave Subscription Page v//')
+        PANEL_VERSION=$(_state_clean_version "${raw_sub_ver:-latest}")
+        local raw_n_ver; raw_n_ver=$(_state_get_node_version_from_logs "$node_container")
+        NODE_VERSION=$(_state_clean_version "$raw_n_ver")
+
+    elif [ $is_subpage -eq 1 ]; then
+        SERVER_TYPE="Sub-page подписки"
+        PANEL_NODE_PATH=$(run_cmd docker inspect --format='{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$subpage_container" 2>/dev/null)
+        local raw_sub_ver
+        raw_sub_ver=$(run_cmd docker logs "$subpage_container" 2>/dev/null | grep -oE 'Remnawave Subscription Page v[0-9.]*' | tail -n 1 | sed 's/Remnawave Subscription Page v//')
+        PANEL_VERSION=$(_state_clean_version "${raw_sub_ver:-latest}")
 
     elif [ $is_node -eq 1 ]; then
         SERVER_TYPE="Нода"
