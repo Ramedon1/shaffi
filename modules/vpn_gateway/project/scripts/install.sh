@@ -201,9 +201,30 @@ fi
 log "Проверка /start внутри gateway успешна (HTTP 302)"
 
 log "Проверяю /start через edge (информационная проверка)..."
-START_CODE_EDGE="$(curl -k -s -o /dev/null -w '%{http_code}' 'https://127.0.0.1/start?target=test-offer' || true)"
+# Читаем реальный порт и домен из конфига — edge nginx слушает НЕ на стандартном 443
+_EDGE_HTTPS_PORT=$(CFG_FILE="${CFG_FILE}" python3 - <<'PY'
+import os, yaml
+from pathlib import Path
+cfg = yaml.safe_load(Path(os.environ["CFG_FILE"]).read_text(encoding="utf-8")) or {}
+print(cfg.get("edge", {}).get("https_port", 443))
+PY
+2>/dev/null || echo "443")
+_EDGE_DOMAIN=$(CFG_FILE="${CFG_FILE}" python3 - <<'PY'
+import os, yaml
+from pathlib import Path
+cfg = yaml.safe_load(Path(os.environ["CFG_FILE"]).read_text(encoding="utf-8")) or {}
+q = cfg.get("quick_setup", {})
+print(q.get("public_domain", "localhost"))
+PY
+2>/dev/null || echo "localhost")
+START_CODE_EDGE="$(curl -k -s -o /dev/null \
+  -H "Host: ${_EDGE_DOMAIN}" \
+  -w '%{http_code}' \
+  "https://127.0.0.1:${_EDGE_HTTPS_PORT}/start?target=test-offer" || true)"
 if [[ "${START_CODE_EDGE}" != "302" ]]; then
-  warn "Через edge получен код ${START_CODE_EDGE}. Проверьте host nginx/server_name и внешний прокси, если ожидаете 302 снаружи."
+  warn "Через edge (127.0.0.1:${_EDGE_HTTPS_PORT}) получен код ${START_CODE_EDGE}."
+  warn "Это нормально если внешний трафик идёт через reverse-proxy (Caddy/Nginx) на другом порту."
+  warn "Проверь: curl -k -H 'Host: ${_EDGE_DOMAIN}' https://127.0.0.1:${_EDGE_HTTPS_PORT}/start"
 else
   log "Проверка /start через edge успешна (HTTP 302)"
 fi
