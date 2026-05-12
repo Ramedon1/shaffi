@@ -354,7 +354,7 @@ ask_password() {
     # Очистка буфера
     while read -r -t 0; do read -r; done
     read -s -p "$prompt" password || return 130
-    echo # Перевод строки после ввода
+    echo >&2 # Перевод строки после ввода
     echo "$password"
     return 0
 }
