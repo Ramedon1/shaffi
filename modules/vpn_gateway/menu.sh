@@ -99,10 +99,22 @@ _vgw_is_offer_like() {
     [[ "$v" =~ ^[a-zA-Z0-9._-]{2,64}$ ]]
 }
 
+# Определяет путь к питону с PyYAML: сначала venv проекта, затем системный python3
+# Причина: PyYAML установлен в venv, а не глобально — системный python3 его не видит
+_vgw_python() {
+    local venv_py="$(_vgw_project_dir)/.venv/bin/python"
+    if [[ -x "$venv_py" ]]; then
+        echo "$venv_py"
+    else
+        echo "python3"
+    fi
+}
+
 _vgw_read_quick_field() {
     local field="$1" cfg_file="$(_vgw_cfg_file)"
     [[ -f "$cfg_file" ]] || { echo ""; return 0; }
-    CFG_FILE="$cfg_file" FIELD_NAME="$field" python3 - <<'PY2'
+    local py_bin; py_bin="$(_vgw_python)"
+    CFG_FILE="$cfg_file" FIELD_NAME="$field" "$py_bin" - <<'PY2'
 import os
 from pathlib import Path
 import yaml
@@ -114,7 +126,8 @@ PY2
 _vgw_update_quick_setup() {
     local public_domain="$1" origin_domain="$2" default_offer="$3" acme_enabled="$4" acme_email="$5" cfg_file="$(_vgw_cfg_file)"
     [[ -f "$cfg_file" ]] || { printf_error "Не найден config/gateway.yml: ${cfg_file}"; return 1; }
-    CFG_FILE="$cfg_file" PUBLIC_DOMAIN="$public_domain" ORIGIN_DOMAIN="$origin_domain" DEFAULT_OFFER="$default_offer" ACME_ENABLED="$acme_enabled" ACME_EMAIL="$acme_email" python3 - <<'PY2'
+    local py_bin; py_bin="$(_vgw_python)"
+    CFG_FILE="$cfg_file" PUBLIC_DOMAIN="$public_domain" ORIGIN_DOMAIN="$origin_domain" DEFAULT_OFFER="$default_offer" ACME_ENABLED="$acme_enabled" ACME_EMAIL="$acme_email" "$py_bin" - <<'PY2'
 import os
 from pathlib import Path
 import yaml

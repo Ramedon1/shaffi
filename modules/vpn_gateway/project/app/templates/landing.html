@@ -4,8 +4,10 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>{{ page.title }}</title>
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-  <link rel="shortcut icon" href="/favicon.ico">
+  <!-- favicon.svg — эндпоинт FastAPI, inline SVG (не зависит от файлов на диске) -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <!-- fallback для Safari и старых браузеров -->
+  <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
 
   <style>
     :root {

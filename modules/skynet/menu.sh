@@ -291,6 +291,76 @@ _show_server_management_menu() {
             fi
         }
 
+        # Синхронизация контекста с основного сервера на удалённый перед запуском агента:
+        #   - Глобальный Белый Список → overwrite (централизованная политика безопасности)
+        #   - Сторонние сервисы  → merge   (добавляем только новые, не удаляем локальные)
+        _skynet_push_context() {
+            local gwl_file="/etc/reshala/global-whitelist.txt"
+            local ext_file="/etc/reshala/ext_services/scripts.db"
+            local gwl_b64="" ext_b64=""
+
+            if [[ -f "$gwl_file" ]]; then
+                gwl_b64=$(base64 -w0 "$gwl_file" 2>/dev/null || base64 "$gwl_file" | tr -d '\n' || true)
+            fi
+            if [[ -f "$ext_file" && -s "$ext_file" ]]; then
+                ext_b64=$(base64 -w0 "$ext_file" 2>/dev/null || base64 "$ext_file" | tr -d '\n' || true)
+            fi
+
+            [[ -z "$gwl_b64" && -z "$ext_b64" ]] && return 0
+
+            # Создаём временный скрипт с встроенными base64-данными
+            local tmp_ctx; tmp_ctx=$(mktemp /tmp/reshala_ctx_XXXXXX.sh)
+            {
+                echo '#!/bin/bash'
+                # base64 содержит только [A-Za-z0-9+/=] — безопасно вставлять в кавычки
+                printf 'GWL_B64="%s"\n' "$gwl_b64"
+                printf 'EXT_B64="%s"\n' "$ext_b64"
+                # Остальной код защищён heredoc-ом ('без раскрытия $)
+                cat << 'REMOTE_SCRIPT'
+# ── 1. Глобальный Белый Список — OVERWRITE ───────────────────────
+if [[ -n "$GWL_B64" ]]; then
+    mkdir -p /etc/reshala
+    printf '%s' "$GWL_B64" | base64 -d > /etc/reshala/global-whitelist.txt
+    chmod 644 /etc/reshala/global-whitelist.txt
+fi
+
+# ── 2. Сторонние сервисы — MERGE (добавляем новые, не трогаем локальные) ──
+if [[ -n "$EXT_B64" ]]; then
+    mkdir -p /etc/reshala/ext_services
+    local_db="/etc/reshala/ext_services/scripts.db"
+    [[ ! -f "$local_db" ]] && touch "$local_db"
+    while IFS='|' read -r order name cmd; do
+        # Пустые строки игнорируем
+        [[ -z "$cmd" ]] && continue
+        # Проверяем по команде — уникальный идентификатор записи
+        if ! grep -qF "|${cmd}" "$local_db" 2>/dev/null; then
+            # Новая запись: вычисляем максимальный ORDER + 10
+            next_order=$((
+                $( awk -F'|' 'BEGIN{m=0} /^[0-9]/{if($1+0>m)m=$1+0} END{print m}' "$local_db" 2>/dev/null || echo 0 )
+                + 10
+            ))
+            printf '%s|%s|%s\n' "$next_order" "$name" "$cmd" >> "$local_db"
+        fi
+    done < <(printf '%s' "$EXT_B64" | base64 -d)
+fi
+REMOTE_SCRIPT
+            } > "$tmp_ctx"
+
+            # SCP скрипта на удалённый, выполняем, чистим
+            if scp -q -P "$s_port" -F /dev/null -o IdentitiesOnly=yes -i "$s_key" \
+               -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+               "$tmp_ctx" "${s_user}@${s_ip}:/tmp/reshala_ctx.sh" 2>/dev/null; then
+                local exec_cmd="bash /tmp/reshala_ctx.sh; rm -f /tmp/reshala_ctx.sh"
+                if [[ "$s_user" != "root" && -n "$s_pass" ]]; then
+                    exec_cmd="echo '$s_pass' | sudo -S -p '' bash -c '$exec_cmd'"
+                fi
+                ssh -F /dev/null -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
+                    -o ConnectTimeout=5 -i "$s_key" -p "$s_port" \
+                    "${s_user}@${s_ip}" "$exec_cmd" 2>/dev/null
+            fi
+            rm -f "$tmp_ctx"
+        }
+
         printf "   📡 Проверка агента... "
         local remote_ver_cmd="grep 'readonly VERSION' $INSTALL_PATH 2>/dev/null | cut -d'\"' -f2"
         local remote_ver; remote_ver=$(run_remote "$remote_ver_cmd" | tail -n1 | tr -d '\r')
@@ -305,6 +375,14 @@ _show_server_management_menu() {
             ok "Агент готов: (${remote_ver})"
         fi
         
+        # Синхронизируем контекст перед входом в агент
+        printf "   🔄 Синхронизую Whitelist + Ext Services... "
+        if _skynet_push_context; then
+            printf "${C_GREEN}✓${C_RESET}\n"
+        else
+            printf "${C_YELLOW}пропущено${C_RESET}\n"
+        fi
+
         printf_info "Вхожу в удалённый терминал..."
         local ssh_opts=(-t -F /dev/null -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -i "$s_key" -p "$s_port")
         local remote_target="${s_user}@${s_ip}"
