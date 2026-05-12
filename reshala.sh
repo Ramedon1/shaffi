@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================ #
-# ==      ИНСТРУМЕНТ «РЕШАЛА» v3.025 - РЕФАКТОРИНГ МЕНЮ        == #
+# ==      ИНСТРУМЕНТ «РЕШАЛА» v3.026 - РЕФАКТОРИНГ МЕНЮ        == #
 # ============================================================ #
 #
 # Точка входа. Этот скрипт — прораб. Он только отдаёт команды
@@ -26,7 +26,7 @@ export SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
 # что приводит к "chdir: error: getcwd: cannot access parent directories"
 cd "$SCRIPT_DIR" 2>/dev/null || cd / || true
 
-readonly VERSION="v3.025"
+readonly VERSION="v3.026"
 
 # ============================================================ #
 #              ПОДГОТОВКА И ЗАГРУЗКА КОМПОНЕНТОВ               #
@@ -263,54 +263,89 @@ show_main_menu() {
                     if [[ ${UPDATE_AVAILABLE:-0} -eq 1 ]]; then
                         if [[ -n "${LATEST_COMMIT_MESSAGE:-}" ]]; then
                             clear
-                            local W=66  # inner text width
-                            local BOX_W=68
-                            local _line_eq; _line_eq=$(printf "%.0s═" $(seq 1 $BOX_W))
-                            local _line_dsh; _line_dsh=$(printf "%.0s─" $(seq 1 $BOX_W))
+                            local CW=54   # ширина текста в символах (НЕ байтах)
+                            local BW=58   # внутренняя ширина рамки (CW + 4 для отступов)
+                            local _leq; _leq=$(printf '═%.0s' $(seq 1 $BW))
+                            local _ldsh; _ldsh=$(printf '─%.0s' $(seq 1 $BW))
+
+                            # Печатает строку внутри рамки с правильным правым бордером
+                            _bbox() {
+                                local color="${1}" text="${2:-}"
+                                # Обрезаем до CW символов если длиннее
+                                if [[ ${#text} -gt $CW ]]; then text="${text:0:$CW}"; fi
+                                local rpad=$(( BW - ${#text} - 2 ))
+                                printf "  ${C_CYAN}║${C_RESET}  ${color}%s${C_RESET}%${rpad}s${C_CYAN}║${C_RESET}\n" "$text" ""
+                            }
+
+                            # UTF-8 перенос слов — bash ${#var} считает символы, не байты
+                            _bwrap() {
+                                local color="${1}" indent="${2}" text="${3}"
+                                local -a words; read -ra words <<< "$text"
+                                local line="$indent"
+                                for word in "${words[@]}"; do
+                                    local cand="${line}${line:+ }${word}"
+                                    if [[ ${#cand} -le $CW ]]; then
+                                        line="$cand"
+                                    else
+                                        _bbox "$color" "$line"
+                                        line="${indent}${word}"
+                                    fi
+                                done
+                                [[ -n "$line" ]] && _bbox "$color" "$line"
+                            }
 
                             echo ""
-                            echo -e "  ${C_CYAN}╔${_line_eq}╗${C_RESET}"
-                            printf "  ${C_CYAN}║${C_RESET}  ${C_YELLOW}${C_BOLD}⚡  ЧТО НОВОГО В ОБНОВЛЕНИИ %-28s${C_RESET}${C_CYAN}║${C_RESET}\n" "${LATEST_VERSION}"
-                            echo -e "  ${C_CYAN}╠${_line_dsh}╣${C_RESET}"
-                            echo -e "  ${C_CYAN}║${C_RESET}"
+                            echo -e "  ${C_CYAN}╔${_leq}╗${C_RESET}"
+                            _bbox "${C_YELLOW}${C_BOLD}" "⚡  ЧТО НОВОГО В ОБНОВЛЕНИИ ${LATEST_VERSION}"
+                            echo -e "  ${C_CYAN}╠${_ldsh}╣${C_RESET}"
+                            _bbox "" ""
 
-                            # ── Умный рендерер строк коммита ──────────────────
+                            local _skip_first=1
                             while IFS= read -r raw_line; do
-                                # Пустая строка → красивый отступ
+                                # Первая строка (subject коммита) — показываем как подзаголовок
+                                if [[ $_skip_first -eq 1 ]]; then
+                                    _skip_first=0
+                                    _bwrap "${C_WHITE}${C_BOLD}" "" "$raw_line"
+                                    continue
+                                fi
+
+                                # Пустая строка
                                 if [[ -z "${raw_line// /}" ]]; then
-                                    echo -e "  ${C_CYAN}║${C_RESET}"
+                                    _bbox "" ""
                                     continue
                                 fi
 
-                                # Строка с bullet ├─ └─ → цветной пункт
-                                if [[ "$raw_line" =~ ^[[:space:]]*(├─|└─|[-*•]) ]]; then
-                                    # Убираем ведущие пробелы для чистого отступа
-                                    local stripped="${raw_line#"${raw_line%%[! ]*}"}"
-                                    printf "  ${C_CYAN}║${C_RESET}    ${C_GRAY}▸${C_RESET} ${C_WHITE}%s${C_RESET}\n" "${stripped#*─ }"
+                                # Строки-разделители (━━━ ═══ ───) → рамочный делитель
+                                local _stripped; _stripped=$(echo "$raw_line" | tr -d '━─═ \t')
+                                if [[ -z "$_stripped" ]]; then
+                                    echo -e "  ${C_CYAN}╠${_ldsh}╣${C_RESET}"
                                     continue
                                 fi
 
-                                # Строка — заголовок секции (содержит эмодзи и двоеточие или заглавные)
-                                if [[ "$raw_line" =~ ^[[:space:]]*(🚀|🔧|🐛|✨|🛠|💡|⚡|🔒|🧹|📦|🗑️|♻️|🌐|💾|🎯|🆕|⚙️|🔥|✅|📋|🏎️) ]]; then
-                                    echo -e "  ${C_CYAN}║${C_RESET}  ${C_CYAN}${C_BOLD}${raw_line}${C_RESET}"
+                                # Заголовок секции с эмодзи
+                                if [[ "$raw_line" =~ ^[[:space:]]*(🚀|🔧|🐛|✨|🛠|💡|⚡|🔒|🧹|📦|🗑️|♻️|🌐|💾|🎯|🆕|⚙️|🔥|✅|📋|🏎️|🛡️|🔍|🗑|🌐|⚠️) ]]; then
+                                    _bwrap "${C_CYAN}${C_BOLD}" "" "${raw_line#"${raw_line%%[! ]*}"}"
                                     continue
                                 fi
 
-                                # Обычный длинный текст → перенос слов
-                                echo "$raw_line" | fold -s -w "$W" | while IFS= read -r wrapped; do
-                                    [[ -z "${wrapped// /}" ]] && continue
-                                    printf "  ${C_CYAN}║${C_RESET}  ${C_WHITE}%s${C_RESET}\n" "$wrapped"
-                                done
+                                # Строки с отступом (sub-items, имена файлов)
+                                if [[ "$raw_line" =~ ^[[:space:]]+ ]]; then
+                                    _bwrap "${C_GRAY}" "  " "${raw_line#"${raw_line%%[! ]*}"}"
+                                    continue
+                                fi
+
+                                # Обычный текст — перенос слов с учётом Unicode
+                                _bwrap "${C_WHITE}" "" "$raw_line"
 
                             done <<< "$LATEST_COMMIT_MESSAGE"
-                            # ─────────────────────────────────────────────────
 
-                            echo -e "  ${C_CYAN}║${C_RESET}"
-                            echo -e "  ${C_CYAN}╚${_line_eq}╝${C_RESET}"
+                            _bbox "" ""
+                            echo -e "  ${C_CYAN}╚${_leq}╝${C_RESET}"
                             echo ""
                             echo -e "  👇 Нажми ${C_BOLD}[Enter]${C_RESET}, чтобы подтвердить и начать обновление..."
                             read -r _
                         fi
+
                         run_module core/self_update run_update
                     else
                         printf_error "Нет такого пункта."

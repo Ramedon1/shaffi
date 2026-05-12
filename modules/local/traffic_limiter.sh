@@ -133,11 +133,23 @@ _tl_ensure_ebpf_deps() {
     if ! which bpftool &>/dev/null; then
         info "Авто-Хирург: Ищу bpftool в специфичных путях..."
         if [[ -f /etc/debian_version ]]; then
-            # Пытаемся поставить пакет bpftool (для новых ядер) или linux-tools (для старых)
             apt-get update
-            apt-get install -y bpftool || apt-get install -y linux-tools-common linux-tools-generic "linux-tools-$(uname -r)" || true
+            # Стандартный bpftool
+            apt-get install -y bpftool 2>/dev/null || true
+            # Для xanmod ядер (linux-tools-xanmod / linux-cloud-tools-xanmod)
+            if ! which bpftool &>/dev/null; then
+                local k_flavor; k_flavor=$(uname -r | grep -oE 'xanmod[0-9]*' || true)
+                if [[ -n "$k_flavor" ]]; then
+                    info "Обнаружено xanmod ядро. Пробую linux-tools-xanmod..."
+                    apt-get install -y linux-tools-xanmod linux-cloud-tools-xanmod \
+                        "linux-tools-$(uname -r)" "linux-cloud-tools-$(uname -r)" 2>/dev/null || true
+                else
+                    apt-get install -y linux-tools-common linux-tools-generic \
+                        "linux-tools-$(uname -r)" 2>/dev/null || true
+                fi
+            fi
         fi
-        
+
         # Поиск по известным путям linux-tools
         local p
         local k_ver; k_ver=$(uname -r)
@@ -148,7 +160,7 @@ _tl_ensure_ebpf_deps() {
             "/usr/local/sbin/bpftool"
             "/usr/sbin/bpftool"
         )
-        
+
         for p in "${possible_bins[@]}"; do
             if [[ -x "$p" ]]; then
                 info "Нашел bpftool: $p. Создаю симлинк..."
@@ -415,14 +427,19 @@ _tl_ensure_engine_ready() {
         systemctl daemon-reload
         systemctl enable --now "${TL_SERVICE_NAME}"
         
-        # Ожидание инициализации карт
-        local timeout=10
-        while [ ! -d "${TL_BPF_PIN_DIR}/maps" ] && [ $timeout -gt 0 ]; do
+        # Ожидание появления РЕАЛЬНОГО BPF-файла карты (не просто директории!).
+        # mkdir создаёт /maps до запуска bpftool, поэтому проверять директорию — недостаточно.
+        local timeout=15
+        while [ ! -e "${TL_BPF_PIN_DIR}/maps/config_map" ] && [ $timeout -gt 0 ]; do
             sleep 1; ((timeout--))
         done
 
-        if [ ! -d "${TL_BPF_PIN_DIR}/maps" ]; then
-             err "❌ Ошибка: eBPF движок не запустился. Проверь 'journalctl -u ${TL_SERVICE_NAME}'"
+        if [ ! -e "${TL_BPF_PIN_DIR}/maps/config_map" ]; then
+             err "❌ Ошибка: eBPF движок не запустился (config_map не создан)."
+             err "   Проверь: journalctl -u ${TL_SERVICE_NAME} --no-pager -n 30"
+             if uname -r | grep -qi xanmod; then
+                 warn "Обнаружено xanmod ядро. Попробуй: apt install linux-tools-xanmod linux-cloud-tools-xanmod"
+             fi
              return 1
         fi
         ok "Миграция завершена! Новый движок активен."
@@ -623,14 +640,21 @@ EOF
         info "Запуск eBPF движка..."
         systemctl restart "${TL_SERVICE_NAME}"
         
-        # Ожидание инициализации (проверка появления карт)
-        local timeout=10
-        while [ ! -d "${TL_BPF_PIN_DIR}/maps" ] && [ $timeout -gt 0 ]; do
+        # Ожидание появления РЕАЛЬНОГО BPF-файла карты (не просто директории!).
+        # mkdir создаёт /maps ДО того как bpftool загружает программу.
+        # Если bpftool упал — директория есть, но config_map НЕТ → ложный success.
+        local timeout=15
+        while [ ! -e "${TL_BPF_PIN_DIR}/maps/config_map" ] && [ $timeout -gt 0 ]; do
             sleep 1; ((timeout--))
         done
 
-        if [ ! -d "${TL_BPF_PIN_DIR}/maps" ]; then
-             err "❌ Критическая ошибка: Движок не запустился. Проверь логи: journalctl -u ${TL_SERVICE_NAME}"
+        if [ ! -e "${TL_BPF_PIN_DIR}/maps/config_map" ]; then
+             err "❌ Критическая ошибка: Движок не запустился (BPF карты не созданы)."
+             err "   Диагностика: journalctl -u ${TL_SERVICE_NAME} --no-pager -n 30"
+             if uname -r | grep -qi xanmod; then
+                 warn "Обнаружено xanmod ядро — generic bpftool может не подходить."
+                 warn "Установи: apt install linux-tools-xanmod linux-cloud-tools-xanmod"
+             fi
              return 1
         fi
         ok "Движок успешно развернут!"
