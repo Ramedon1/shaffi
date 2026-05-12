@@ -6,7 +6,7 @@
 # Упрощенное и автоматизированное меню управления лендингом/gateway.
 #
 # @menu.manifest
-# @item( main | g | 🛡️ Маскировщик лендинга Bedolaga ${C_CYAN}(быстрый мастер)${C_RESET} | show_vpn_gateway_menu | 45 | 3 | Единый мастер настройки и управления VPN-шлюзом для маскировки лендинга Bedolaga. )
+# @item( main | g | 🛡️ Маскировщик лендинга Bedolaga ${C_CYAN}(быстрый мастер)${C_RESET} | show_vpn_gateway_menu | 55 | 3 | Единый мастер настройки для маскировки лендинга Bedolaga. )
 # @item( vpn_gateway | 1 | 🚀 Мастер: первичная настройка | vgw_install_wizard | 10 | 1 | Запрашивает параметры, обновляет конфиг и поднимает стек. )
 # @item( vpn_gateway | 2 | 🔁 Мастер: изменить параметры | vgw_reconfigure_wizard | 20 | 1 | Обновляет quick_setup и перезапускает шлюз с nginx. )
 # @item( vpn_gateway | 3 | ♻️ Перезапуск стека (анти-502) | vgw_run | 30 | 1 | Пересоздаёт контейнеры шлюза и перезапускает nginx. )
@@ -27,6 +27,47 @@ _vgw_validate_environment() {
     local project_dir="$(_vgw_project_dir)" ctl="$(_vgw_ctl_path)"
     [[ -d "$project_dir" ]] || { printf_error "Не найдена директория VPN Gateway: ${project_dir}"; return 1; }
     [[ -x "$ctl" ]] || { printf_error "Не найден исполняемый gatewayctl: ${ctl}"; return 1; }
+
+    # Проверяем PyYAML — если нет, пробуем установить автоматически
+    if ! python3 -c "import yaml" 2>/dev/null; then
+        warn "PyYAML не найден. Пробую установить автоматически..."
+
+        local venv_pip="${project_dir}/.venv/bin/pip"
+        local installed=0
+
+        if [[ -x "$venv_pip" ]]; then
+            info "Устанавливаю через venv проекта: ${venv_pip}"
+            if "$venv_pip" install pyyaml --quiet; then
+                ok "PyYAML установлен в venv проекта."
+                installed=1
+            else
+                warn "Не удалось установить через venv."
+            fi
+        fi
+
+        if [[ "$installed" -eq 0 ]] && command -v pip3 &>/dev/null; then
+            info "Устанавливаю через системный pip3..."
+            if pip3 install pyyaml --quiet; then
+                ok "PyYAML установлен глобально."
+                installed=1
+            else
+                warn "Не удалось установить через pip3."
+            fi
+        fi
+
+        if [[ "$installed" -eq 0 ]]; then
+            printf_error "Не удалось автоматически установить PyYAML."
+            printf_warning "Установи вручную: pip3 install pyyaml"
+            printf_warning "Или через venv:   ${project_dir}/.venv/bin/pip install pyyaml"
+            return 1
+        fi
+
+        # Повторная проверка после установки
+        if ! python3 -c "import yaml" 2>/dev/null; then
+            printf_error "PyYAML установлен, но python3 его не видит. Проверь окружение."
+            return 1
+        fi
+    fi
 }
 
 _vgw_run_action() {
@@ -214,7 +255,17 @@ vgw_uninstall_dry(){ _vgw_run_action uninstall-dry; }
 vgw_status_diagnostics() {
     _vgw_run_action status || true
     local project_dir="$(_vgw_project_dir)"
-    ( cd "$project_dir"; docker-compose -f docker-compose.yml -f docker-compose.edge.yml logs --tail=120 edge-nginx || true; echo ""; docker-compose -f docker-compose.yml -f docker-compose.edge.yml logs --tail=120 vpn-gateway || true )
+    # Поддерживаем и старый docker-compose, и новый docker compose (плагин)
+    local dc_cmd
+    if docker compose version &>/dev/null 2>&1; then
+        dc_cmd="docker compose"
+    elif command -v docker-compose &>/dev/null; then
+        dc_cmd="docker-compose"
+    else
+        printf_error "Не найден ни 'docker compose', ни 'docker-compose'."
+        return 1
+    fi
+    ( cd "$project_dir"; $dc_cmd -f docker-compose.yml -f docker-compose.edge.yml logs --tail=120 edge-nginx || true; echo ""; $dc_cmd -f docker-compose.yml -f docker-compose.edge.yml logs --tail=120 vpn-gateway || true )
 }
 
 vgw_certs_full(){ _vgw_run_action certs-ensure || return 1; _vgw_run_action certs-renew || return 1; _vgw_run_action certs-cron; }

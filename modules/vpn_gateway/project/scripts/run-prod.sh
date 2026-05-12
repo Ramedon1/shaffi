@@ -11,6 +11,16 @@ if [[ ! -f "${CFG_FILE}" ]]; then
   exit 1
 fi
 
+# Поддерживаем и docker compose (плагин, v2+), и legacy docker-compose
+if docker compose version &>/dev/null 2>&1; then
+  DC_CMD="docker compose"
+elif command -v docker-compose &>/dev/null; then
+  DC_CMD="docker-compose"
+else
+  echo "[error] Не найден ни 'docker compose', ни 'docker-compose'." >&2
+  exit 1
+fi
+
 readarray -t CFG_VALUES < <(CFG_FILE="${CFG_FILE}" python3 - <<'PY'
 import os
 import yaml
@@ -47,10 +57,10 @@ if [[ ! -f "${ROOT_DIR}/edge/certs/fullchain.pem" || ! -f "${ROOT_DIR}/edge/cert
   ./scripts/ensure-certs.sh
 fi
 
-EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" docker-compose -f docker-compose.yml -f docker-compose.edge.yml down --remove-orphans || true
+EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml down --remove-orphans || true
 
-EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" docker-compose -f docker-compose.yml -f docker-compose.edge.yml up -d --build --force-recreate --remove-orphans
+EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml up -d --build --force-recreate --remove-orphans
 
-EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" docker-compose -f docker-compose.yml -f docker-compose.edge.yml restart edge-nginx
+EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml restart edge-nginx
 
 echo "[ok] Стек полностью перезапущен. Публичный домен: ${EDGE_DOMAIN}, HTTP: ${EDGE_HTTP_PORT}, HTTPS: ${EDGE_HTTPS_PORT}"

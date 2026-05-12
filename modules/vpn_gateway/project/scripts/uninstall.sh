@@ -66,12 +66,16 @@ for arg in "$@"; do
   esac
 done
 
-if ! command -v docker-compose >/dev/null 2>&1; then
-  err "Не найдена команда docker-compose"
+if docker compose version &>/dev/null 2>&1; then
+  DC_BIN="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  DC_BIN="docker-compose"
+else
+  err "Не найден ни 'docker compose', ни 'docker-compose'"
   exit 1
 fi
 
-COMPOSE_CMD="docker-compose -f docker-compose.yml -f docker-compose.edge.yml"
+COMPOSE_CMD="${DC_BIN} -f docker-compose.yml -f docker-compose.edge.yml"
 cd "${ROOT_DIR}"
 
 log "Проект: ${ROOT_DIR}"

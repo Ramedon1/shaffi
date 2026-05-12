@@ -68,7 +68,17 @@ if [[ -z "${ACME_EMAIL}" || "${ACME_EMAIL}" == "admin@example.com" ]]; then
 fi
 
 cd "${ROOT_DIR}"
-EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" docker-compose -f docker-compose.yml -f docker-compose.edge.yml up -d --build
+
+# Поддерживаем и docker compose (v2+), и legacy docker-compose
+if docker compose version &>/dev/null 2>&1; then
+  DC_CMD="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  DC_CMD="docker-compose"
+else
+  echo "[error] Не найден ни 'docker compose', ни 'docker-compose'." >&2; exit 1
+fi
+
+EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml up -d --build
 
 # Выпуск сертификата через webroot-челлендж
 if command -v certbot >/dev/null 2>&1; then
@@ -102,6 +112,6 @@ else
   cp "${LE_DIR}/live/${EDGE_DOMAIN}/privkey.pem" "${PRIVKEY}"
 fi
 
-EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" docker-compose -f docker-compose.yml -f docker-compose.edge.yml restart edge-nginx
+EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml restart edge-nginx
 
 echo "[ok] Сертификат Let's Encrypt выпущен и применён для ${EDGE_DOMAIN}"

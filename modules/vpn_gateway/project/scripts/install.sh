@@ -60,7 +60,45 @@ EOF
 log "Проверяю зависимости..."
 require_cmd python3
 require_cmd docker
-require_cmd docker-compose
+
+# Поддерживаем и docker compose (плагин, v2+), и legacy docker-compose
+if docker compose version &>/dev/null 2>&1; then
+  DC_CMD="docker compose"
+elif command -v docker-compose &>/dev/null; then
+  DC_CMD="docker-compose"
+else
+  err "Не найден ни 'docker compose', ни 'docker-compose'. Установите Docker Compose."
+  exit 1
+fi
+log "Используется: ${DC_CMD}"
+
+# Проверяем PyYAML — если нет, устанавливаем автоматически
+if ! python3 -c "import yaml" 2>/dev/null; then
+  log "PyYAML не найден. Устанавливаю автоматически..."
+  PYYAML_INSTALLED=0
+
+  if [[ -x "${ROOT_DIR}/.venv/bin/pip" ]]; then
+    log "Устанавливаю через venv: ${ROOT_DIR}/.venv/bin/pip"
+    "${ROOT_DIR}/.venv/bin/pip" install pyyaml --quiet && PYYAML_INSTALLED=1 || warn "Установка через venv не удалась."
+  fi
+
+  if [[ "${PYYAML_INSTALLED}" -eq 0 ]] && command -v pip3 &>/dev/null; then
+    log "Устанавливаю через системный pip3..."
+    pip3 install pyyaml --quiet && PYYAML_INSTALLED=1 || warn "Установка через pip3 не удалась."
+  fi
+
+  if [[ "${PYYAML_INSTALLED}" -eq 0 ]]; then
+    err "Не удалось автоматически установить PyYAML."
+    err "Установи вручную: pip3 install pyyaml"
+    exit 1
+  fi
+
+  if ! python3 -c "import yaml" 2>/dev/null; then
+    err "PyYAML установлен, но python3 его не видит. Проверь PATH и окружение."
+    exit 1
+  fi
+  log "PyYAML успешно установлен."
+fi
 
 if [[ ! -x "${VENV_PYTHON}" ]]; then
   err "Не найден venv python: ${VENV_PYTHON}"

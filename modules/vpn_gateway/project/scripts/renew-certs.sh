@@ -49,6 +49,16 @@ fi
 
 cd "${ROOT_DIR}"
 
+# Поддерживаем и docker compose (v2+), и legacy docker-compose
+if docker compose version &>/dev/null 2>&1; then
+  DC_CMD="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  DC_CMD="docker-compose"
+else
+  echo "[error] Не найден ни 'docker compose', ни 'docker-compose'." >&2; exit 1
+fi
+
+
 if command -v certbot >/dev/null 2>&1; then
   certbot renew --webroot -w "${ACME_WEBROOT_DIR}" --quiet
 else
@@ -63,7 +73,7 @@ if [[ -f "${LE_DIR}/live/${EDGE_DOMAIN}/fullchain.pem" && -f "${LE_DIR}/live/${E
   cp "${LE_DIR}/live/${EDGE_DOMAIN}/privkey.pem" "${CERTS_DIR}/privkey.pem"
 fi
 
-EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" docker-compose -f docker-compose.yml -f docker-compose.edge.yml exec -T edge-nginx nginx -t
-EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" docker-compose -f docker-compose.yml -f docker-compose.edge.yml exec -T edge-nginx nginx -s reload
+EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml exec -T edge-nginx nginx -t
+EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml exec -T edge-nginx nginx -s reload
 
 echo "[ok] Проверка и reload сертификатов выполнены"
