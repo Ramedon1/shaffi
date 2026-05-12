@@ -129,12 +129,26 @@ run_uninstall_purge() {
 show_status() {
   cd "${ROOT_DIR}"
   log "Проверка docker-сервисов проекта"
-  if command -v docker-compose >/dev/null 2>&1; then
-    docker-compose -f docker-compose.yml -f docker-compose.edge.yml ps || true
+
+  local dc_bin=""
+  if docker compose version &>/dev/null 2>&1; then
+    dc_bin="docker compose"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    dc_bin="docker-compose"
   else
     warn "docker-compose не найден"
+    return 1
   fi
+
+  # Гарантируем наличие .env.edge (нужен для парсинга docker-compose.edge.yml)
+  if [[ ! -f "${ROOT_DIR}/edge/.env.edge" ]]; then
+    mkdir -p "${ROOT_DIR}/edge"
+    printf 'EDGE_DOMAIN=\nEDGE_HTTP_PORT=80\nEDGE_HTTPS_PORT=443\n' > "${ROOT_DIR}/edge/.env.edge"
+  fi
+
+  ${dc_bin} -f docker-compose.yml -f docker-compose.edge.yml ps || true
 }
+
 
 show_manifest() {
   cat <<EOF

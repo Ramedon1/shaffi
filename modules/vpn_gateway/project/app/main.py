@@ -139,15 +139,23 @@ def create_app(config_path: str = "config/gateway.yml") -> FastAPI:
     async def health():
         return {"ok": True}
 
-    # ── Favicon: инлайн SVG-эндпоинт — не зависит от файлов на диске ──
+    # ── /favicon.svg — инлайн SVG, корректный content-type ──────────────────
     @app.api_route("/favicon.svg", methods=["GET", "HEAD"])
-    @app.api_route("/favicon.ico", methods=["GET", "HEAD"])
-    async def favicon():
+    async def favicon_svg():
         return Response(
             content=_FAVICON_SVG.encode("utf-8"),
             media_type="image/svg+xml",
             headers={"Cache-Control": "public, max-age=86400"},
         )
+
+    # ── /favicon.ico — редирект на SVG ──────────────────────────────────────
+    # ВАЖНО: нельзя отдавать SVG с content-type image/svg+xml по /favicon.ico:
+    # nginx добавляет X-Content-Type-Options: nosniff → браузер отклоняет ответ.
+    # Редирект 301 → браузер запрашивает /favicon.svg с правильным URL → принимает.
+    @app.api_route("/favicon.ico", methods=["GET", "HEAD"])
+    async def favicon_ico():
+        return RedirectResponse(url="/favicon.svg", status_code=301)
+
 
     # ── Статика: монтируем только если папка существует (не ломаем запуск если папка пустая/отсутствует) ──
     _static_dir = "app/static"

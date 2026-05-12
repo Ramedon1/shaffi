@@ -96,7 +96,19 @@ if [[ "${DRY_RUN}" == "false" && "${ASSUME_YES}" != "true" ]]; then
 fi
 
 log "Останавливаю и удаляю docker-compose ресурсы проекта..."
+
+# docker-compose.edge.yml ссылается на edge/.env.edge для подстановки переменных.
+# Если файл отсутствует (стек ещё не запускался или был удалён) — docker-compose
+# падает с "Couldn't find env file" и не может даже остановить контейнеры.
+# Создаём минимальный stub чтобы down прошёл в любом случае.
+if [[ ! -f "${ROOT_DIR}/edge/.env.edge" ]]; then
+    mkdir -p "${ROOT_DIR}/edge"
+    printf 'EDGE_DOMAIN=\nEDGE_HTTP_PORT=80\nEDGE_HTTPS_PORT=443\n' > "${ROOT_DIR}/edge/.env.edge"
+    log "Создан stub edge/.env.edge (стек не был запущен ранее)"
+fi
+
 run_cmd "${COMPOSE_CMD} down --remove-orphans"
+
 
 if [[ "${PURGE_DATA}" == "true" ]]; then
   log "Очищаю локальные данные edge (certs/logs/.env.edge)..."

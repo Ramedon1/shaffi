@@ -56,6 +56,14 @@ fi
 
 cd "${ROOT_DIR}"
 
+# Генерируем edge/.env.edge из конфига (нужен docker-compose.edge.yml для парсинга)
+mkdir -p "${ROOT_DIR}/edge"
+cat > "${ROOT_DIR}/edge/.env.edge" << ENVEOF
+EDGE_DOMAIN=${EDGE_DOMAIN}
+EDGE_HTTP_PORT=${EDGE_HTTP_PORT}
+EDGE_HTTPS_PORT=${EDGE_HTTPS_PORT}
+ENVEOF
+
 # Поддерживаем и docker compose (v2+), и legacy docker-compose
 if docker compose version &>/dev/null 2>&1; then
   DC_CMD="docker compose"

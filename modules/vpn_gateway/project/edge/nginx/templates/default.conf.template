@@ -101,6 +101,9 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
 
+        # Отключаем сжатие от upstream — иначе sub_filter не сможет обработать HTML
+        proxy_set_header Accept-Encoding "";
+
         proxy_connect_timeout 5s;
         proxy_send_timeout 30s;
         proxy_read_timeout 30s;
@@ -115,5 +118,13 @@ server {
         proxy_hide_header X-Powered-By;
         proxy_hide_header X-AspNet-Version;
         proxy_hide_header X-AspNetMvc-Version;
+
+        # ── Инжектируем НАШ фавикон во все HTML-страницы ────────────────────
+        # Работает для landing.html И для страниц кабинета в reverse_proxy режиме.
+        # Вставляем СРАЗУ после <head> — браузер использует первый найденный фавикон.
+        sub_filter_types text/html;
+        sub_filter '<head>' '<head><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="shortcut icon" href="/favicon.ico">';
+        sub_filter_once on;
     }
+
 }

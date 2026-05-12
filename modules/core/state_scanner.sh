@@ -23,16 +23,18 @@ REMNA_STATE_SCANNED=0
 
 # НИЖЕ — портированная логика из старого install_reshala.sh
 
-# Проверяет, относится ли имя контейнера к экосистеме Remnawave
+# Проверяет, относится ли имя контейнера к экосистеме Remnawave или к Решале
 _state_is_remnawave_container() {
     local name="$1"
     case "$name" in
-        remnawave-*|remnanode*|remnawave_bot|tinyauth|support-*)
-            return 0  # Это Remnawave-контейнер
-            ;;
+        # Remnawave-экосистема (все варианты именования)
+        remnawave-*|remnawave|remnanode*|remnawave_bot|tinyauth|support-*)
+            return 0 ;;
+        # Решала VPN Gateway stack — не чужой, наш собственный сервис
+        vpn-gateway|vpn-edge-nginx|project_vpn-gateway|project_vpn-edge-nginx)
+            return 0 ;;
         *)
-            return 1  # Сторонний
-            ;;
+            return 1 ;;
     esac
 }
 
@@ -81,7 +83,8 @@ _state_get_node_version_from_logs() {
 # Извлекает версию панели, сканируя логи
 _state_get_panel_version_from_logs() {
     local container_names
-    container_names=$(run_cmd docker ps --format '{{.Names}}' 2>/dev/null | grep "^remnawave-") || true
+    # grep -E: ищем как remnawave-* так и просто remnawave (новые версии)
+    container_names=$(run_cmd docker ps --format '{{.Names}}' 2>/dev/null | grep -E "^remnawave(-|$)") || true
 
     if [ -z "$container_names" ]; then
         echo "latest"
@@ -183,18 +186,31 @@ scan_remnawave_state() {
     local subpage_container=""
 
     while IFS= read -r name; do
-        if [[ "$name" == "remnawave-backend"* ]]; then
+        if [[ "$name" == "remnawave-backend"* ]] || \
+           [[ "$name" == "remnawave-app"* ]] || \
+           [[ "$name" == "remnawave" ]]; then
+            # Прямое совпадение — панель управления
             is_panel=1
             panel_container="$name"
         elif [[ "$name" == "remnawave-subscription-page"* ]]; then
             # Страница подписки — это НЕ панель управления, отдельный сервис
             is_subpage=1
             subpage_container="$name"
-        elif [[ "$name" == "remnanode"* ]]; then
+        elif [[ "$name" == "remnanode"* ]] || [[ "$name" == "remnawave-node"* ]]; then
+            # Нода: классическое и новое именование
             is_node=1
             node_container="$name"
         elif [[ "$name" == "remnawave_bot" ]]; then
             : # обрабатываем ниже
+        elif [[ "$name" == "remnawave-"* ]]; then
+            # Нераспознанный remnawave-* контейнер — пробуем определить по образу Docker
+            local _img
+            _img=$(run_cmd docker inspect --format='{{.Config.Image}}' "$name" 2>/dev/null || true)
+            if [[ "$_img" == *"remnawave/backend"* ]]; then
+                is_panel=1
+                panel_container="$name"
+            fi
+            # Остальные remnawave-* (redis, db, scheduler и т.д.) — вспомогательные, не «чужие»
         else
             if ! _state_is_remnawave_container "$name"; then
                 has_foreign=1

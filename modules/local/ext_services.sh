@@ -142,6 +142,32 @@ _ext_run_script() {
         return
     fi
 
+    # Проверяем наличие бинаря перед запуском
+    # Извлекаем первое слово команды (без bash/sh-обёрток — те работают всегда)
+    local _bin; _bin=$(echo "$cmd" | awk '{print $1}')
+    if [[ "$_bin" != "bash" && "$_bin" != "sh" && "$_bin" != "wget" && \
+          "$_bin" != "curl" && "$_bin" != "python3" && "$_bin" != "python" ]]; then
+        if ! command -v "$_bin" &>/dev/null; then
+            echo ""
+            printf_error "Команда '${_bin}' не найдена на сервере."
+            echo ""
+            # Подсказка по установке для популярных инструментов
+            case "$_bin" in
+                sysbench)  printf_info "Установить: ${C_CYAN}apt install sysbench${C_RESET}" ;;
+                iperf3)    printf_info "Установить: ${C_CYAN}apt install iperf3${C_RESET}" ;;
+                fio)       printf_info "Установить: ${C_CYAN}apt install fio${C_RESET}" ;;
+                htop)      printf_info "Установить: ${C_CYAN}apt install htop${C_RESET}" ;;
+                nmap)      printf_info "Установить: ${C_CYAN}apt install nmap${C_RESET}" ;;
+                ncdu)      printf_info "Установить: ${C_CYAN}apt install ncdu${C_RESET}" ;;
+                stress)    printf_info "Установить: ${C_CYAN}apt install stress${C_RESET}" ;;
+                *)         printf_info "Установить через пакетный менеджер: ${C_CYAN}apt install ${_bin}${C_RESET}" ;;
+            esac
+            echo ""
+            wait_for_enter
+            return 1
+        fi
+    fi
+
     echo ""
     print_separator "=" 60
     eval "$cmd"
