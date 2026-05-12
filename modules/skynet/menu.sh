@@ -319,8 +319,8 @@ _show_server_management_menu() {
         }
 
         # Синхронизация контекста с основного сервера на удалённый перед запуском агента:
-        #   - Глобальный Белый Список → overwrite (централизованная политика безопасности)
-        #   - Сторонние сервисы  → merge   (добавляем только новые, не удаляем локальные)
+        #   - Глобальный Белый Список → merge     (добавляем только новые IP, не удаляем локальные)
+        #   - Сторонние сервисы       → merge     (добавляем только новые, не удаляем локальные)
         _skynet_push_context() {
             local gwl_file="/etc/reshala/global-whitelist.txt"
             local ext_file="/etc/reshala/ext_services/scripts.db"
@@ -344,11 +344,34 @@ _show_server_management_menu() {
                 printf 'EXT_B64="%s"\n' "$ext_b64"
                 # Остальной код защищён heredoc-ом ('без раскрытия $)
                 cat << 'REMOTE_SCRIPT'
-# ── 1. Глобальный Белый Список — OVERWRITE ───────────────────────
+# ── 1. Глобальный Белый Список — MERGE (добавляем новые IP) ──────
 if [[ -n "$GWL_B64" ]]; then
     mkdir -p /etc/reshala
-    printf '%s' "$GWL_B64" | base64 -d > /etc/reshala/global-whitelist.txt
-    chmod 644 /etc/reshala/global-whitelist.txt
+    gwl_file="/etc/reshala/global-whitelist.txt"
+    [[ ! -f "$gwl_file" ]] && touch "$gwl_file"
+    
+    tmp_gwl="/tmp/new_gwl.txt"
+    printf '%s' "$GWL_B64" | base64 -d > "$tmp_gwl"
+    
+    while read -r line; do
+        # Игнорируем пустые строки и комментарии целиком
+        [[ -z "${line// /}" ]] && continue
+        [[ "$line" == "#"* ]] && continue
+        
+        # Извлекаем сам IP/подсеть (первое слово)
+        ip_part=$(echo "$line" | awk '{print $1}')
+        
+        # Экранируем точки для точного поиска через grep -E
+        safe_ip=$(echo "$ip_part" | sed 's/\./\\./g')
+        
+        # Проверяем, есть ли уже этот IP в файле (как первое слово)
+        if ! grep -qE "^[[:space:]]*${safe_ip}([[:space:]]|$|#)" "$gwl_file" 2>/dev/null; then
+            echo "$line" >> "$gwl_file"
+        fi
+    done < "$tmp_gwl"
+    rm -f "$tmp_gwl"
+    
+    chmod 644 "$gwl_file"
 fi
 
 # ── 2. Сторонние сервисы — MERGE (добавляем новые, не трогаем локальные) ──
