@@ -881,7 +881,6 @@ _tl_edit_whitelist() {
                 else
                     ok "Глобальный список успешно подключен и активен!"
                 fi
-                wait_for_enter
                 return
             fi
         fi
