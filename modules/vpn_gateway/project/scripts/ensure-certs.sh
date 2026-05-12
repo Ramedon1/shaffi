@@ -12,9 +12,16 @@ LE_DIR="${ROOT_DIR}/edge/letsencrypt"
 FULLCHAIN="${CERTS_DIR}/fullchain.pem"
 PRIVKEY="${CERTS_DIR}/privkey.pem"
 
+# Используем venv python если есть (PyYAML может быть только там), иначе системный python3
+if [[ -x "${ROOT_DIR}/.venv/bin/python" ]]; then
+  PYTHON="${ROOT_DIR}/.venv/bin/python"
+else
+  PYTHON="python3"
+fi
+
 mkdir -p "${CERTS_DIR}" "${ACME_WEBROOT_DIR}" "${LE_DIR}"
 
-readarray -t CFG_VALUES < <(CFG_FILE="${CFG_FILE}" python3 - <<'PY'
+readarray -t CFG_VALUES < <(CFG_FILE="${CFG_FILE}" "${PYTHON}" - <<'PY'
 import os
 import yaml
 from pathlib import Path

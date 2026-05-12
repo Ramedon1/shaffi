@@ -21,7 +21,14 @@ else
   exit 1
 fi
 
-readarray -t CFG_VALUES < <(CFG_FILE="${CFG_FILE}" python3 - <<'PY'
+# Используем venv python если есть (PyYAML может быть только там), иначе системный python3
+if [[ -x "${ROOT_DIR}/.venv/bin/python" ]]; then
+  PYTHON="${ROOT_DIR}/.venv/bin/python"
+else
+  PYTHON="python3"
+fi
+
+readarray -t CFG_VALUES < <(CFG_FILE="${CFG_FILE}" "${PYTHON}" - <<'PY'
 import os
 import yaml
 from pathlib import Path
