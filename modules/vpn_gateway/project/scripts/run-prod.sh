@@ -59,6 +59,15 @@ fi
 
 EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml down --remove-orphans || true
 
+# Явно удаляем контейнеры по имени — на случай если они были созданы с другим compose-проектом
+# (docker-compose down не трогает «чужие» контейнеры с тем же именем)
+for cname in vpn-gateway vpn-edge-nginx; do
+  if docker ps -a --format '{{.Names}}' | grep -qx "${cname}"; then
+    echo "[info] Удаляю старый контейнер: ${cname}"
+    docker rm -f "${cname}" >/dev/null 2>&1 || true
+  fi
+done
+
 EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml up -d --build --force-recreate --remove-orphans
 
 EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml restart edge-nginx
