@@ -28,43 +28,54 @@ _vgw_validate_environment() {
     [[ -d "$project_dir" ]] || { printf_error "Не найдена директория VPN Gateway: ${project_dir}"; return 1; }
     [[ -x "$ctl" ]] || { printf_error "Не найден исполняемый gatewayctl: ${ctl}"; return 1; }
 
+    local py_bin; py_bin="$(_vgw_python)"
     # Проверяем PyYAML — если нет, пробуем установить автоматически
-    if ! python3 -c "import yaml" 2>/dev/null; then
-        warn "PyYAML не найден. Пробую установить автоматически..."
+    if ! "$py_bin" -c "import yaml" 2>/dev/null; then
+        warn "PyYAML не найден для ${py_bin}. Пробую установить автоматически..."
 
-        local venv_pip="${project_dir}/.venv/bin/pip"
         local installed=0
-
-        if [[ -x "$venv_pip" ]]; then
-            info "Устанавливаю через venv проекта: ${venv_pip}"
-            if "$venv_pip" install pyyaml --quiet; then
-                ok "PyYAML установлен в venv проекта."
+        
+        # 1. Пробуем системный пакет (самый надежный способ на Debian 12+)
+        if command -v apt-get &>/dev/null; then
+            info "Устанавливаю python3-yaml через apt..."
+            if run_cmd apt-get update -qq && run_cmd apt-get install -y python3-yaml -qq; then
+                ok "python3-yaml установлен через apt."
                 installed=1
-            else
-                warn "Не удалось установить через venv."
             fi
         fi
 
+        # 2. Пробуем venv проекта
+        if [[ "$installed" -eq 0 ]]; then
+            local venv_pip="${project_dir}/.venv/bin/pip"
+            if [[ -x "$venv_pip" ]]; then
+                info "Устанавливаю через venv проекта: ${venv_pip}"
+                if "$venv_pip" install pyyaml --quiet; then
+                    ok "PyYAML установлен в venv проекта."
+                    installed=1
+                fi
+            fi
+        fi
+
+        # 3. Пробуем системный pip3
         if [[ "$installed" -eq 0 ]] && command -v pip3 &>/dev/null; then
             info "Устанавливаю через системный pip3..."
-            if pip3 install pyyaml --quiet; then
+            if pip3 install pyyaml --quiet 2>/dev/null || pip3 install pyyaml --quiet --break-system-packages 2>/dev/null; then
                 ok "PyYAML установлен глобально."
                 installed=1
-            else
-                warn "Не удалось установить через pip3."
             fi
         fi
 
         if [[ "$installed" -eq 0 ]]; then
             printf_error "Не удалось автоматически установить PyYAML."
-            printf_warning "Установи вручную: pip3 install pyyaml"
-            printf_warning "Или через venv:   ${project_dir}/.venv/bin/pip install pyyaml"
+            printf_warning "Установи вручную: apt install python3-yaml"
+            printf_warning "Или: pip3 install pyyaml --break-system-packages"
             return 1
         fi
 
-        # Повторная проверка после установки
-        if ! python3 -c "import yaml" 2>/dev/null; then
-            printf_error "PyYAML установлен, но python3 его не видит. Проверь окружение."
+        # Повторная проверка после установки (обновляем py_bin на случай если что-то изменилось)
+        py_bin="$(_vgw_python)"
+        if ! "$py_bin" -c "import yaml" 2>/dev/null; then
+            printf_error "PyYAML установлен, но ${py_bin} его не видит. Проверь окружение."
             return 1
         fi
     fi

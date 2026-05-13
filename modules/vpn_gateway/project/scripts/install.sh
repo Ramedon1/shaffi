@@ -74,22 +74,30 @@ log "Используется: ${DC_CMD}"
 
 # Проверяем PyYAML — если нет, устанавливаем автоматически
 if ! python3 -c "import yaml" 2>/dev/null; then
-  log "PyYAML не найден. Устанавливаю автоматически..."
+  log "PyYAML не найден. Пробую установить автоматически..."
   PYYAML_INSTALLED=0
 
-  if [[ -x "${ROOT_DIR}/.venv/bin/pip" ]]; then
+  # 1. Пробуем apt (наиболее надежно)
+  if command -v apt-get &>/dev/null; then
+    log "Устанавливаю python3-yaml через apt..."
+    apt-get update -qq && apt-get install -y python3-yaml -qq && PYYAML_INSTALLED=1
+  fi
+
+  # 2. Пробуем venv
+  if [[ "${PYYAML_INSTALLED}" -eq 0 ]] && [[ -x "${ROOT_DIR}/.venv/bin/pip" ]]; then
     log "Устанавливаю через venv: ${ROOT_DIR}/.venv/bin/pip"
     "${ROOT_DIR}/.venv/bin/pip" install pyyaml --quiet && PYYAML_INSTALLED=1 || warn "Установка через venv не удалась."
   fi
 
+  # 3. Пробуем pip3
   if [[ "${PYYAML_INSTALLED}" -eq 0 ]] && command -v pip3 &>/dev/null; then
     log "Устанавливаю через системный pip3..."
-    pip3 install pyyaml --quiet && PYYAML_INSTALLED=1 || warn "Установка через pip3 не удалась."
+    (pip3 install pyyaml --quiet || pip3 install pyyaml --quiet --break-system-packages) && PYYAML_INSTALLED=1 || warn "Установка через pip3 не удалась."
   fi
 
   if [[ "${PYYAML_INSTALLED}" -eq 0 ]]; then
     err "Не удалось автоматически установить PyYAML."
-    err "Установи вручную: pip3 install pyyaml"
+    err "Установите вручную: apt install python3-yaml"
     exit 1
   fi
 
