@@ -750,11 +750,25 @@ _firewall_install_ufw() {
         
         # Сразу предлагаем базовую настройку, чтобы юзер не закрыл себе доступ
         info "Настройка базовых правил (SSH разрешен)..."
-        run_cmd ufw allow ssh
+        local ssh_port; ssh_port=$(grep "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+        ssh_port=${ssh_port:-22}
+        
+        run_cmd ufw allow "$ssh_port"
+        run_cmd ufw allow 80/tcp
+        run_cmd ufw allow 443/tcp
         run_cmd ufw default deny incoming
         run_cmd ufw default allow outgoing
         
         if ask_yes_no "Включить Firewall сейчас?"; then
+            # Проверка Docker при первом включении
+            if command -v docker &>/dev/null && docker ps &>/dev/null 2>&1; then
+                echo ""
+                echo -e "  ${C_YELLOW}⚠️  ВНИМАНИЕ: Обнаружен Docker!${C_RESET}"
+                echo -e "  UFW и Docker несовместимы без дополнительной настройки."
+                if ask_yes_no "Применить профессиональное исправление UFW+Docker автоматически?" "y"; then
+                    _firewall_fix_docker_ufw
+                fi
+            fi
             echo "y" | run_cmd ufw enable
         fi
     else
