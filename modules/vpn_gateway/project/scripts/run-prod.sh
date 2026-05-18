@@ -21,11 +21,27 @@ else
   exit 1
 fi
 
-# Используем venv python если есть (PyYAML может быть только там), иначе системный python3
+# Используем venv python если есть, иначе системный python3
 if [[ -x "${ROOT_DIR}/.venv/bin/python" ]]; then
   PYTHON="${ROOT_DIR}/.venv/bin/python"
 else
   PYTHON="python3"
+fi
+
+# Убеждаемся что PyYAML доступен (установка могла не пройти или venv сломан)
+if ! "${PYTHON}" -c "import yaml" 2>/dev/null; then
+  echo "[run-prod] PyYAML не найден для ${PYTHON}. Пробую установить через apt..." >&2
+  if command -v apt-get > /dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-yaml 2>/dev/null || true
+  fi
+  if ! "${PYTHON}" -c "import yaml" 2>/dev/null; then
+    # Последний шанс: pip
+    pip3 install pyyaml --quiet 2>/dev/null || pip3 install pyyaml --quiet --break-system-packages 2>/dev/null || true
+  fi
+  if ! "${PYTHON}" -c "import yaml" 2>/dev/null; then
+    echo "[error] PyYAML недоступен. Установите: apt install python3-yaml" >&2
+    exit 1
+  fi
 fi
 
 readarray -t CFG_VALUES < <(CFG_FILE="${CFG_FILE}" "${PYTHON}" - <<'PY'

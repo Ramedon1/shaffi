@@ -71,27 +71,49 @@ auto_install_docker() {
 }
 
 # ============================================================
-# Авто-установка python3 если не найден
+# Убедиться что python3 + все нужные пакеты установлены
+# Запускается ВСЕГДА: не только при отсутствии python3,
+# но и чтобы python3-venv и python3-yaml были доступны.
 # ============================================================
-auto_install_python3() {
-  if command -v python3 > /dev/null 2>&1; then
-    return 0
-  fi
-
-  log "python3 не найден. Пробую установить через apt..."
-  if command -v apt-get > /dev/null 2>&1; then
-    apt-get update -qq && apt-get install -y python3 python3-venv python3-pip -qq
-  else
-    err "Не удалось установить python3 автоматически. Установите вручную: apt install python3"
-    exit 1
+ensure_python3_deps() {
+  # 1. Устанавливаем python3 если нет
+  if ! command -v python3 > /dev/null 2>&1; then
+    log "python3 не найден. Устанавливаю через apt..."
+    if command -v apt-get > /dev/null 2>&1; then
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 python3-venv python3-pip python3-yaml 2>/dev/null
+    else
+      err "Не удалось установить python3. Установите вручную: apt install python3"
+      exit 1
+    fi
   fi
 
   if ! command -v python3 > /dev/null 2>&1; then
     err "python3 не найден после установки."
     exit 1
   fi
-  log "python3 установлен: $(python3 --version)"
+  log "python3: $(python3 --version)"
+
+  # 2. ВСЕГДА доустанавливаем python3-venv + python3-yaml через apt
+  #    (даже если python3 уже был на сервере, venv может отсутствовать)
+  if command -v apt-get > /dev/null 2>&1; then
+    local py_ver
+    py_ver=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "")
+    local venv_pkg="python3-venv"
+    # На Ubuntu/Debian пакет может называться python3.XX-venv
+    if [[ -n "$py_ver" ]]; then
+      venv_pkg="python${py_ver}-venv"
+    fi
+    log "Доустанавливаю ${venv_pkg} + python3-yaml..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${venv_pkg}" python3-yaml python3-pip 2>/dev/null || \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-venv python3-yaml python3-pip 2>/dev/null || true
+  fi
+
+  # 3. Проверяем что venv работает
+  if ! python3 -m venv --help > /dev/null 2>&1; then
+    warn "Модуль venv недоступен. Инсталляция продолжится, но тесты будут пропущены."
+  fi
 }
+
 
 validate_config() {
   CFG_FILE="${CFG_FILE}" python3 - <<'PY'
@@ -128,7 +150,7 @@ EOF
 }
 
 # ── Авто-установка всех зависимостей ──────────────────────────
-auto_install_python3
+ensure_python3_deps
 auto_install_docker
 
 log "Проверяю зависимости..."
@@ -158,48 +180,13 @@ else
 fi
 log "Docker Compose: ${DC_CMD} ($(${DC_CMD} version --short 2>/dev/null || echo 'ok'))"
 
-# Проверяем PyYAML — если нет, устанавливаем автоматически
-if ! python3 -c "import yaml" 2>/dev/null; then
-  log "PyYAML не найден. Пробую установить автоматически..."
-  PYYAML_INSTALLED=0
 
-  # 1. Пробуем apt (наиболее надежно)
-  if command -v apt-get &>/dev/null; then
-    log "Устанавливаю python3-yaml через apt..."
-    apt-get update -qq && apt-get install -y python3-yaml -qq && PYYAML_INSTALLED=1
-  fi
-
-  # 2. Пробуем venv
-  if [[ "${PYYAML_INSTALLED}" -eq 0 ]] && [[ -x "${ROOT_DIR}/.venv/bin/pip" ]]; then
-    log "Устанавливаю через venv: ${ROOT_DIR}/.venv/bin/pip"
-    "${ROOT_DIR}/.venv/bin/pip" install pyyaml --quiet && PYYAML_INSTALLED=1 || warn "Установка через venv не удалась."
-  fi
-
-  # 3. Пробуем pip3
-  if [[ "${PYYAML_INSTALLED}" -eq 0 ]] && command -v pip3 &>/dev/null; then
-    log "Устанавливаю через системный pip3..."
-    (pip3 install pyyaml --quiet || pip3 install pyyaml --quiet --break-system-packages) && PYYAML_INSTALLED=1 || warn "Установка через pip3 не удалась."
-  fi
-
-  if [[ "${PYYAML_INSTALLED}" -eq 0 ]]; then
-    err "Не удалось автоматически установить PyYAML."
-    err "Установите вручную: apt install python3-yaml"
-    exit 1
-  fi
-
-  if ! python3 -c "import yaml" 2>/dev/null; then
-    err "PyYAML установлен, но python3 его не видит. Проверь PATH и окружение."
-    exit 1
-  fi
-  log "PyYAML успешно установлен."
-fi
 
 # Venv — создаём автоматически если не существует
 if [[ ! -x "${VENV_PYTHON}" ]]; then
   log "venv не найден. Создаю окружение: ${ROOT_DIR}/.venv ..."
-  if python3 -m venv "${ROOT_DIR}/.venv"; then
+  if python3 -m venv "${ROOT_DIR}/.venv" 2>/dev/null; then
     log "venv создан успешно."
-    # Устанавливаем зависимости если есть requirements.txt
     if [[ -f "${ROOT_DIR}/requirements.txt" ]]; then
       log "Устанавливаю зависимости из requirements.txt..."
       "${ROOT_DIR}/.venv/bin/pip" install -r "${ROOT_DIR}/requirements.txt" --quiet \
@@ -207,9 +194,29 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
         || warn "Не удалось установить часть зависимостей. Продолжаю..."
     fi
   else
-    warn "Не удалось создать venv. Тесты будут пропущены."
+    warn "Не удалось создать venv (python3-venv не установлен?)."
+    warn "Тесты будут пропущены, но PyYAML должен быть доступен через python3-yaml."
   fi
 fi
+
+# PyYAML: проверяем доступность для системного python3
+# (независимо от venv — run-prod.sh и другие скрипты используют python3 при отсутствии venv)
+if ! python3 -c "import yaml" 2>/dev/null; then
+  warn "PyYAML недоступен для системного python3. Пробую установить..."
+  PYYAML_OK=0
+  if command -v apt-get > /dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-yaml 2>/dev/null && PYYAML_OK=1 || true
+  fi
+  if [[ "${PYYAML_OK}" -eq 0 ]] && command -v pip3 > /dev/null 2>&1; then
+    pip3 install pyyaml --quiet 2>/dev/null || pip3 install pyyaml --quiet --break-system-packages 2>/dev/null && PYYAML_OK=1 || true
+  fi
+  if ! python3 -c "import yaml" 2>/dev/null; then
+    err "PyYAML недоступен для системного python3. Установите вручную: apt install python3-yaml"
+    exit 1
+  fi
+  log "PyYAML установлен для системного python3."
+fi
+
 
 if [[ ! -f "${CFG_FILE}" ]]; then
   if [[ -f "${CFG_EXAMPLE_FILE}" ]]; then
