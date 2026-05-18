@@ -256,7 +256,8 @@ show_vpn_gateway_menu() {
         menu_header "🛡️ Маскировщик лендинга Bedolaga" 64 "${C_CYAN}"
         printf_description "Простой мастер настройки + автоматизация."
         printf_description "Скрытие return платежки: ${C_YELLOW}$(_vgw_read_hide_payment_return)${C_RESET}"
-        echo ""
+        # Статус лендинга в шапке меню
+        _vgw_show_landing_status
         render_menu_items "vpn_gateway"
         echo ""
         printf_menu_option "b" "🔙 Назад в главное меню" "${C_CYAN}"
@@ -589,6 +590,9 @@ vgw_install_wizard(){
     http_port=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('edge',{}).get('http_port',80))" 2>/dev/null || echo "80")
     https_port=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('edge',{}).get('https_port',443))" 2>/dev/null || echo "443")
     _vgw_ensure_ufw_ports "$http_port" "$https_port"
+    # Показываем статус лендинга и уведомление о мерчанте
+    _vgw_show_landing_status
+    _vgw_warn_merchant_return
 }
 vgw_reconfigure_wizard(){
     _vgw_preflight_check || return 1
@@ -656,4 +660,107 @@ vgw_toggle_hide_payment_return() {
     else
         if ask_yes_no "Сейчас false/unknown. Включить? (y/n)" "y"; then _vgw_set_hide_payment_return true && printf_ok "hide_payment_return=true"; fi
     fi
+}
+
+# ── Статус работающего лендинга ────────────────────────────────
+_vgw_show_landing_status() {
+    local cfg_file="$(_vgw_cfg_file)"
+    local py_bin; py_bin="$(_vgw_python)"
+
+    local public_domain acme_enabled hide_return
+    public_domain=$(_vgw_read_quick_field public_domain)
+    acme_enabled=$(_vgw_read_quick_field acme_enabled)
+    hide_return=$(_vgw_read_hide_payment_return)
+
+    [[ -z "$public_domain" || "$public_domain" == "vpn.example.com" ]] && return 0
+
+    # Проверяем что контейнер vpn-gateway запущен
+    local gw_status="❌ не запущен"
+    local gw_color="$C_RED"
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "vpn-gateway"; then
+        gw_status="✅ запущен"
+        gw_color="$C_GREEN"
+    fi
+
+    # HTTP-проверка доступности лендинга
+    local http_ok="❌ недоступен"
+    local http_color="$C_RED"
+    if command -v curl > /dev/null 2>&1; then
+        local http_code
+        http_code=$(curl -o /dev/null -sS -w "%{http_code}" --max-time 4 \
+            "https://${public_domain}/" 2>/dev/null || echo "000")
+        if [[ "$http_code" =~ ^(200|301|302|307|308)$ ]]; then
+            http_ok="✅ отвечает (HTTP ${http_code})"
+            http_color="$C_GREEN"
+        elif [[ "$http_code" != "000" ]]; then
+            http_ok="⚠️  HTTP ${http_code}"
+            http_color="$C_YELLOW"
+        fi
+    fi
+
+    local hide_icon="❌ выкл"
+    local hide_color="$C_RED"
+    [[ "$hide_return" == "true" ]] && { hide_icon="✅ вкл"; hide_color="$C_GREEN"; }
+
+    local proto="https"
+    [[ "$acme_enabled" == "false" ]] && proto="https (self-signed)"
+
+    echo ""
+    echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════════╗${C_RESET}"
+    echo -e "  ${C_CYAN}║${C_RESET}  🌐  ${C_BOLD}Статус лендинга${C_RESET}                                         ${C_CYAN}║${C_RESET}"
+    echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════════╣${C_RESET}"
+    printf  "  ${C_CYAN}║${C_RESET}  %-14s ${C_BOLD}%s${C_RESET}%*s${C_CYAN}║${C_RESET}\n" \
+        "Домен:" "${proto}://${public_domain}" \
+        $((30 - ${#public_domain} - ${#proto})) ""
+    printf  "  ${C_CYAN}║${C_RESET}  %-14s ${gw_color}%s${C_RESET}%*s${C_CYAN}║${C_RESET}\n" \
+        "Контейнер:" "$gw_status" \
+        $((46 - ${#gw_status})) ""
+    printf  "  ${C_CYAN}║${C_RESET}  %-14s ${http_color}%s${C_RESET}%*s${C_CYAN}║${C_RESET}\n" \
+        "Доступность:" "$http_ok" \
+        $((46 - ${#http_ok})) ""
+    printf  "  ${C_CYAN}║${C_RESET}  %-14s ${hide_color}%s${C_RESET}%*s${C_CYAN}║${C_RESET}\n" \
+        "Hide return:" "$hide_icon" \
+        $((46 - ${#hide_icon})) ""
+    echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════════╝${C_RESET}"
+    echo ""
+}
+
+# ── Уведомление о return URL в мерчанте ────────────────────────
+_vgw_warn_merchant_return() {
+    local public_domain origin_domain hide_return
+    public_domain=$(_vgw_read_quick_field public_domain)
+    origin_domain=$(_vgw_read_quick_field origin_domain)
+    hide_return=$(_vgw_read_hide_payment_return)
+
+    [[ -z "$public_domain" || "$public_domain" == "vpn.example.com" ]] && return 0
+
+    local W="$C_YELLOW" R="$C_RED" C="$C_CYAN" G="$C_GREEN" B="$C_BOLD" E="$C_RESET"
+
+    echo ""
+    echo -e "  ${R}${B}╔══════════════════════════════════════════════════════════════╗${E}"
+    echo -e "  ${R}${B}║${E}  ${W}${B}⚠️  ОБЯЗАТЕЛЬНОЕ ДЕЙСТВИЕ: настройка мерчанта${E}              ${R}${B}║${E}"
+    echo -e "  ${R}${B}╠══════════════════════════════════════════════════════════════╣${E}"
+    echo -e "  ${R}${B}║${E}                                                              ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}  В платёжном API (Platega / другой процессор) домен          ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}  кабинета попадает в поле ${W}${B}return${E} напрямую из браузера.    ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}  Gateway ${R}${B}не может${E} перехватить это — запрос идёт мимо.     ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}                                                              ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}  ${W}${B}Что нужно сделать в настройках мерчанта:${E}                  ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}                                                              ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}  ${R}Было:${E}  https://${origin_domain}/buy/success/..."  
+    echo -e "  ${R}${B}║${E}  ${G}Нужно: https://${public_domain}/buy/success/...${E}"
+    echo -e "  ${R}${B}║${E}                                                              ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}  Замените Return URL в настройках мерчанта на:              ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}  ${G}${B}  https://${public_domain}/buy/success/...${E}               ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}                                                              ${R}${B}║${E}"
+    echo -e "  ${R}${B}╠══════════════════════════════════════════════════════════════╣${E}"
+    echo -e "  ${R}${B}║${E}  ${W}${B}🔒  Уровень угрозы для цензора:${E}                            ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}                                                              ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}  ${G}•${E} Без замены: цензор может получить origin при оплате.    ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}  ${G}•${E} Уровень: ${W}${B}СРЕДНИЙ${E} — виден только тому, кто платит.       ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}  ${G}•${E} Пассивный цензор (DPI) его ${G}${B}не видит${E} — он в JSON API.   ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}  ${G}•${E} После замены в мерчанте: ${G}${B}утечка закрыта полностью${E}.     ${R}${B}║${E}"
+    echo -e "  ${R}${B}║${E}                                                              ${R}${B}║${E}"
+    echo -e "  ${R}${B}╚══════════════════════════════════════════════════════════════╝${E}"
+    echo ""
 }
