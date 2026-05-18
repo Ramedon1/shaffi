@@ -87,9 +87,9 @@ server {
         proxy_send_timeout 30s;
         proxy_read_timeout 30s;
 
-        proxy_redirect ~^https?://[^/]+(/buy/.*)$ $1;
-        proxy_redirect ~^https?://[^/]+/(assets/.*)$ /$1;
-        proxy_redirect ~^https?://[^/]+/(api/.*)$ /$1;
+        # Нормализация всех редиректов от upstream — обрыв петли редиректов
+        # Кабинет может ответить 301 https://origin/... — превращаем в относительный путь
+        proxy_redirect ~^https?://[^/]+(/.*)$ $1;
 
         proxy_hide_header Server;
         proxy_hide_header X-Powered-By;
@@ -113,10 +113,9 @@ server {
         proxy_send_timeout 30s;
         proxy_read_timeout 30s;
 
-        # Нормализация внешних редиректов от upstream: не светим origin-домены
-        proxy_redirect ~^https?://[^/]+(/buy/.*)$ $1;
-        proxy_redirect ~^https?://[^/]+/(assets/.*)$ /$1;
-        proxy_redirect ~^https?://[^/]+/(api/.*)$ /$1;
+        # Нормализация всех редиректов от upstream — обрыв петли редиректов
+        # Кабинет может ответить 301 https://origin/... — превращаем в относительный путь
+        proxy_redirect ~^https?://[^/]+(/.*)$ $1;
 
         # Сокрытие технических заголовков upstream
         proxy_hide_header Server;

@@ -646,11 +646,29 @@ print(c.get('edge',{}).get('https_port',443))" 2>/dev/null || echo "443")
         http_port=80; https_port=443
     fi
 
+    # ── Определяем: порт занят нашим собственным контейнером? ────────────
+    # Если vpn-edge-nginx уже запущен и слушает эти порты — это НЕ конфликт,
+    # это наш стек. Пересоздание docker compose его освободит перед запуском.
+    local our_container_owns_ports=0
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "vpn-edge-nginx"; then
+        our_container_owns_ports=1
+    fi
+
     local http_conflict=0 https_conflict=0
-    ! _vgw_check_port_free "$http_port"  && http_conflict=1
-    ! _vgw_check_port_free "$https_port" && https_conflict=1
+    if [[ "$our_container_owns_ports" -eq 0 ]]; then
+        ! _vgw_check_port_free "$http_port"  && http_conflict=1
+        ! _vgw_check_port_free "$https_port" && https_conflict=1
+    fi
 
     if [[ "$http_conflict" -eq 1 || "$https_conflict" -eq 1 ]]; then
+        # ── Проверяем: введены ли реальные домены? ────────────────────────
+        local current_domain
+        current_domain=$(_vgw_read_quick_field public_domain 2>/dev/null || echo "")
+        local domains_configured=0
+        if [[ -n "$current_domain" && "$current_domain" != "vpn.example.com" && "$current_domain" != "cabinet.example.com" ]]; then
+            domains_configured=1
+        fi
+
         echo ""
         echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════╗${C_RESET}"
         echo -e "  ${C_CYAN}║${C_RESET}  ${C_YELLOW}⚠️  КОНФЛИКТ ПОРТОВ — исправляю автоматически...${C_RESET}"
@@ -666,27 +684,41 @@ print(c.get('edge',{}).get('https_port',443))" 2>/dev/null || echo "443")
         _vgw_auto_fix_ports "$new_http" "$new_https"
         ok "Порты в config/gateway.yml изменены: HTTP=${new_http}, HTTPS=${new_https}"
 
-        # Генерируем и показываем готовый nginx конфиг
-        _vgw_nginx_scan_and_show_config "$new_http" "$new_https"
-
-        # Ждём пока пользователь применит конфиг
-        echo -e "  ${C_YELLOW}👆 Скопируй конфиг выше в нужный файл, примени nginx и нажми Enter.${C_RESET}"
-        wait_for_enter
-
-        # Проверяем результат
-        local public_domain
-        public_domain=$(CFG_FILE="$cfg_file" "$py_bin" -c "
+        if [[ "$domains_configured" -eq 0 ]]; then
+            # Домены не введены — конфиг nginx будет показан ПОСЛЕ мастера
+            echo ""
+            echo -e "  ${C_YELLOW}╔══════════════════════════════════════════════════════════════${C_RESET}"
+            echo -e "  ${C_YELLOW}║${C_RESET}  ${C_BOLD}⚠️  Nginx-конфиг будет сгенерирован ПОСЛЕ ввода доменов${C_RESET}"
+            echo -e "  ${C_YELLOW}╠══════════════════════════════════════════════════════════════${C_RESET}"
+            echo -e "  ${C_YELLOW}║${C_RESET}"
+            echo -e "  ${C_YELLOW}║${C_RESET}  Порты заняты, поэтому Gateway будет работать на:"
+            echo -e "  ${C_YELLOW}║${C_RESET}  ${C_GREEN}HTTP=${new_http}  HTTPS=${new_https}${C_RESET}"
+            echo -e "  ${C_YELLOW}║${C_RESET}"
+            echo -e "  ${C_YELLOW}║${C_RESET}  После того как укажешь домены — мастер покажет"
+            echo -e "  ${C_YELLOW}║${C_RESET}  готовый nginx-конфиг с твоими реальными данными."
+            echo -e "  ${C_YELLOW}║${C_RESET}"
+            echo -e "  ${C_YELLOW}╚══════════════════════════════════════════════════════════════${C_RESET}"
+            echo ""
+        else
+            # Домены уже есть — показываем готовый конфиг сразу
+            _vgw_nginx_scan_and_show_config "$new_http" "$new_https"
+            echo -e "  ${C_YELLOW}👆 Скопируй конфиг выше в нужный файл, примени nginx и нажми Enter.${C_RESET}"
+            wait_for_enter
+            local public_domain
+            public_domain=$(CFG_FILE="$cfg_file" "$py_bin" -c "
 import os,yaml
 from pathlib import Path
 c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}
 print(c.get('quick_setup',{}).get('public_domain','localhost'))" 2>/dev/null || echo "localhost")
-        _vgw_post_nginx_check "$public_domain" || true
+            _vgw_post_nginx_check "$public_domain" || true
+        fi
 
         http_port="$new_http"
         https_port="$new_https"
     fi
     return 0
 }
+
 
 vgw_install_wizard(){
     _vgw_preflight_check || return 1
