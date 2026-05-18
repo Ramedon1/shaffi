@@ -254,10 +254,8 @@ show_vpn_gateway_menu() {
     while true; do
         clear
         menu_header "🛡️ Маскировщик лендинга Bedolaga" 64 "${C_CYAN}"
-        printf_description "Простой мастер настройки + автоматизация."
-        printf_description "Скрытие return платежки: ${C_YELLOW}$(_vgw_read_hide_payment_return)${C_RESET}"
-        # Статус лендинга в шапке меню
-        _vgw_show_landing_status
+        # Умный статус-блок: установлен или нет
+        _vgw_menu_status_block
         render_menu_items "vpn_gateway"
         echo ""
         printf_menu_option "b" "🔙 Назад в главное меню" "${C_CYAN}"
@@ -268,6 +266,73 @@ show_vpn_gateway_menu() {
         if [[ -n "$action" ]]; then eval "$action"; wait_for_enter; else printf_error "Нет такого пункта."; sleep 1; fi
     done
     disable_graceful_ctrlc
+}
+
+# Умный статус-блок шапки меню:
+# — если лендинг не настроен → жёлтое уведомление «нужна установка»
+# — если настроен           → синий статус с реальными данными
+_vgw_menu_status_block() {
+    local public_domain
+    public_domain=$(_vgw_read_quick_field public_domain 2>/dev/null || echo "")
+    local W="$C_YELLOW" C="$C_CYAN" G="$C_GREEN" R="$C_RED" B="$C_BOLD" E="$C_RESET"
+
+    # ── Лендинг НЕ настроен ───────────────────────────────────────
+    if [[ -z "$public_domain" || "$public_domain" == "vpn.example.com" || "$public_domain" == "cabinet.example.com" ]]; then
+        echo ""
+        echo -e "  ${W}${B}╔══════════════════════════════════════════════════════════════╗${E}"
+        echo -e "  ${W}${B}║${E}  🚧  ${B}Лендинг ещё не установлен${E}                              ${W}${B}║${E}"
+        echo -e "  ${W}${B}╠══════════════════════════════════════════════════════════════╣${E}"
+        echo -e "  ${W}${B}║${E}                                                              ${W}${B}║${E}"
+        echo -e "  ${W}${B}║${E}  Для запуска маскировщика выполни первичную настройку:      ${W}${B}║${E}"
+        echo -e "  ${W}${B}║${E}                                                              ${W}${B}║${E}"
+        echo -e "  ${W}${B}║${E}    ${G}${B}[1] 🚀 Мастер: первичная настройка${E}                       ${W}${B}║${E}"
+        echo -e "  ${W}${B}║${E}                                                              ${W}${B}║${E}"
+        echo -e "  ${W}${B}║${E}  Мастер спросит домены и автоматически поднимет стек.       ${W}${B}║${E}"
+        echo -e "  ${W}${B}╚══════════════════════════════════════════════════════════════╝${E}"
+        echo ""
+        return 0
+    fi
+
+    # ── Лендинг настроен — показываем статус ─────────────────────
+    local hide_return acme_enabled
+    hide_return=$(_vgw_read_hide_payment_return 2>/dev/null || echo "unknown")
+    acme_enabled=$(_vgw_read_quick_field acme_enabled 2>/dev/null || echo "true")
+
+    local gw_status="❌ не запущен" gw_color="$R"
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "vpn-gateway"; then
+        gw_status="✅ запущен" gw_color="$G"
+    fi
+
+    local http_ok="⏳ проверка..." http_color="$W"
+    if command -v curl > /dev/null 2>&1; then
+        local http_code
+        http_code=$(curl -o /dev/null -sS -w "%{http_code}" --max-time 3 \
+            "https://${public_domain}/" 2>/dev/null || echo "000")
+        if [[ "$http_code" =~ ^(200|301|302|307|308)$ ]]; then
+            http_ok="✅ отвечает (HTTP ${http_code})" http_color="$G"
+        elif [[ "$http_code" == "000" ]]; then
+            http_ok="❌ нет ответа" http_color="$R"
+        else
+            http_ok="⚠️  HTTP ${http_code}" http_color="$W"
+        fi
+    fi
+
+    local hide_icon="❌ выкл" hide_color="$R"
+    [[ "$hide_return" == "true" ]] && { hide_icon="✅ вкл" hide_color="$G"; }
+
+    local proto="https"
+    [[ "$acme_enabled" == "false" ]] && proto="https*"
+
+    echo ""
+    echo -e "  ${C}╔══════════════════════════════════════════════════════════════╗${E}"
+    echo -e "  ${C}║${E}  🌐  ${B}Статус лендинга${E}                                         ${C}║${E}"
+    echo -e "  ${C}╠══════════════════════════════════════════════════════════════╣${E}"
+    printf  "  ${C}║${E}  %-15s ${B}${proto}://${public_domain}${E}\n"  "Адрес:"
+    printf  "  ${C}║${E}  %-15s ${gw_color}%s${E}\n"  "Контейнер:"  "$gw_status"
+    printf  "  ${C}║${E}  %-15s ${http_color}%s${E}\n" "Доступность:" "$http_ok"
+    printf  "  ${C}║${E}  %-15s ${hide_color}%s${E}\n" "Hide return:"  "$hide_icon"
+    echo -e "  ${C}╚══════════════════════════════════════════════════════════════╝${E}"
+    echo ""
 }
 
 # Проверяет доступность порта на хосте. Возвращает 0 если порт свободен, 1 если занят.
