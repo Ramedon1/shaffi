@@ -287,6 +287,8 @@ def create_app(config_path: str = "config/gateway.yml") -> FastAPI:
         body_content = upstream_response.content
         content_type = (upstream_response.headers.get("content-type") or "").lower()
         textual_types = ("text/", "application/json", "application/javascript", "application/xml")
+        is_html = "text/html" in content_type
+
         if any(t in content_type for t in textual_types):
             if public_domain and origin_domain:
                 body_content = body_content.replace(origin_domain.encode("utf-8"), public_domain.encode("utf-8"))
@@ -294,11 +296,31 @@ def create_app(config_path: str = "config/gateway.yml") -> FastAPI:
                 text_body = body_content.decode("utf-8", errors="ignore")
                 body_content = _obfuscate_return_in_text(text_body, public_domain).encode("utf-8")
 
+        # ── CSS-инъекция для Bedolaga-Cabinet ──────────────────────────────
+        # Проблема: React/Next.js рендерит описания тарифов как текстовый узел
+        # в <p>. Браузер по HTML-стандарту схлопывает \n в пробел.
+        # Решение: white-space:pre-line — уважает \n, схлопывает пробелы.
+        # Инжектируется один раз в <head> → работает на всех вкладках через
+        # React client-side navigation (SPA не перезагружает <head>).
+        if is_html and b"</head>" in body_content:
+            _CABINET_CSS = (
+                b"<style>"
+                # Описания тарифов в Bedolaga-Cabinet (Tailwind-классы)
+                b"p.text-xs{white-space:pre-line}"
+                b".text-xs.text-dark-400{white-space:pre-line}"
+                b".text-dark-400.text-xs{white-space:pre-line}"
+                # Описания в других секциях (подзаголовки, пояснения)
+                b"p.text-sm.text-dark-400{white-space:pre-line}"
+                b"</style>"
+            )
+            body_content = body_content.replace(b"</head>", _CABINET_CSS + b"</head>", 1)
+
         return Response(
             content=body_content,
             status_code=upstream_response.status_code,
             headers=response_headers,
         )
+
 
     return app
 
