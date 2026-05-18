@@ -88,7 +88,50 @@ _vgw_run_action() {
     ( cd "$project_dir"; "$ctl" "$action" "$@" )
 }
 
-_vgw_cfg_file() { echo "$(_vgw_project_dir)/config/gateway.yml"; }
+_vgw_cfg_file()    { echo "$(_vgw_project_dir)/config/gateway.yml"; }
+
+# Персистентное хранилище конфига — вне git-репозитория, git pull его не трогает
+_VGW_PERSIST_DIR="/etc/reshala-bedolaga"
+_vgw_cfg_backup_file() { echo "${_VGW_PERSIST_DIR}/gateway.yml"; }
+
+# Сохраняет рабочий конфиг в персистентное хранилище после каждого сохранения настроек
+_vgw_cfg_save_persistent() {
+    local cfg_file; cfg_file="$(_vgw_cfg_file)"
+    local bak_file; bak_file="$(_vgw_cfg_backup_file)"
+    [[ -f "$cfg_file" ]] || return 0
+    mkdir -p "${_VGW_PERSIST_DIR}" 2>/dev/null || return 0
+    cp -f "$cfg_file" "$bak_file" 2>/dev/null || true
+}
+
+# Автовосстановление: если рабочий конфиг пустой/удалён, но бэкап есть — копируем без вопросов
+_vgw_cfg_restore_if_needed() {
+    local cfg_file; cfg_file="$(_vgw_cfg_file)"
+    local bak_file; bak_file="$(_vgw_cfg_backup_file)"
+    [[ -f "$bak_file" ]] || return 0          # Бэкапа нет — нечего восстанавливать
+
+    # Читаем домен из рабочего конфига
+    local current_domain=""
+    if [[ -f "$cfg_file" ]]; then
+        local py_bin; py_bin="$(_vgw_python 2>/dev/null)" || return 0
+        current_domain=$(CFG_FILE="$cfg_file" "$py_bin" -c "
+import os,yaml; from pathlib import Path
+try:
+    c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}
+    print(c.get('quick_setup',{}).get('public_domain',''))
+except: print('')" 2>/dev/null || echo "")
+    fi
+
+    local need_restore=0
+    [[ ! -f "$cfg_file" ]] && need_restore=1
+    [[ -z "$current_domain" || "$current_domain" == "vpn.example.com" ]] && need_restore=1
+
+    if [[ "$need_restore" -eq 1 ]]; then
+        mkdir -p "$(_vgw_project_dir)/config" 2>/dev/null || true
+        cp -f "$bak_file" "$cfg_file" 2>/dev/null && \
+            ok "Конфиг автоматически восстановлен из ${_VGW_PERSIST_DIR}" || true
+    fi
+}
+
 
 _vgw_is_ipv4() {
     local v="$1"
@@ -176,6 +219,8 @@ if isinstance(landing, dict) and isinstance(landing.get('pages'), list) and land
 p.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding='utf-8')
 print('ok')
 PY2
+    # Сохраняем копию в персистентное хранилище (/etc/bedolaga/) — не зависит от git
+    _vgw_cfg_save_persistent
 }
 
 
@@ -270,6 +315,8 @@ show_vpn_gateway_menu() {
     while true; do
         clear
         menu_header "🛡️ Маскировщик лендинга Bedolaga" 64 "${C_CYAN}"
+        # Автовосстановление конфига если git pull его удалил
+        _vgw_cfg_restore_if_needed
         # Умный статус-блок: установлен или нет
         _vgw_menu_status_block
         render_menu_items "vpn_gateway"
@@ -300,24 +347,34 @@ _vgw_menu_status_block() {
             orphan_running=1
         fi
 
+        # Уточняем: файл удалён git pull-ом или просто содержит плейсхолдеры
+        local cfg_file; cfg_file="$(_vgw_cfg_file)"
+        local cfg_missing=0
+        [[ ! -f "$cfg_file" ]] && cfg_missing=1
+
         if [[ "$orphan_running" -eq 1 ]]; then
             echo ""
-            echo -e "  ${R}${B}╔══════════════════════════════════════════════════════════════╗${E}"
-            echo -e "  ${R}${B}║${E}  ⚠️  ${B}Обнаружены запущенные контейнеры без конфига!${E}          ${R}${B}║${E}"
-            echo -e "  ${R}${B}╠══════════════════════════════════════════════════════════════╣${E}"
-            echo -e "  ${R}${B}║${E}                                                              ${R}${B}║${E}"
-            echo -e "  ${R}${B}║${E}  Контейнеры ${W}${B}vpn-gateway / vpn-edge-nginx${E} запущены,         ${R}${B}║${E}"
-            echo -e "  ${R}${B}║${E}  но config/gateway.yml отсутствует или содержит              ${R}${B}║${E}"
-            echo -e "  ${R}${B}║${E}  плейсхолдеры. Это могло случиться после ${W}git pull${E}.         ${R}${B}║${E}"
-            echo -e "  ${R}${B}║${E}                                                              ${R}${B}║${E}"
-            echo -e "  ${R}${B}║${E}  ${W}${B}Варианты действий:${E}                                        ${R}${B}║${E}"
-            echo -e "  ${R}${B}║${E}                                                              ${R}${B}║${E}"
-            echo -e "  ${R}${B}║${E}  ${G}${B}[1]${E} — Запустить мастер заново (пересоздаст конфиг          ${R}${B}║${E}"
-            echo -e "  ${R}${B}║${E}       и перезапустит существующий стек с новыми данными)     ${R}${B}║${E}"
-            echo -e "  ${R}${B}║${E}                                                              ${R}${B}║${E}"
-            echo -e "  ${R}${B}║${E}  ${R}${B}[d]${E} — Удалить контейнеры и начать с чистого листа         ${R}${B}║${E}"
-            echo -e "  ${R}${B}║${E}                                                              ${R}${B}║${E}"
-            echo -e "  ${R}${B}╚══════════════════════════════════════════════════════════════╝${E}"
+            echo -e "  ${W}${B}╔══════════════════════════════════════════════════════════════╗${E}"
+            if [[ "$cfg_missing" -eq 1 ]]; then
+                echo -e "  ${W}${B}║${E}  🔄  ${B}Конфиг удалён при обновлении — стек продолжает работать${E} ${W}${B}║${E}"
+            else
+                echo -e "  ${W}${B}║${E}  🔄  ${B}Конфиг сброшен — стек работает со старыми данными${E}      ${W}${B}║${E}"
+            fi
+            echo -e "  ${W}${B}╠══════════════════════════════════════════════════════════════╣${E}"
+            echo -e "  ${W}${B}║${E}                                                              ${W}${B}║${E}"
+            if [[ "$cfg_missing" -eq 1 ]]; then
+                echo -e "  ${W}${B}║${E}  Файл ${R}config/gateway.yml${E} был удалён после ${W}${B}git pull${E}.         ${W}${B}║${E}"
+            else
+                echo -e "  ${W}${B}║${E}  Файл ${W}${B}config/gateway.yml${E} содержит плейсхолдеры.              ${W}${B}║${E}"
+            fi
+            echo -e "  ${W}${B}║${E}  Контейнеры ${G}vpn-gateway / vpn-edge-nginx${E} продолжают работать.  ${W}${B}║${E}"
+            echo -e "  ${W}${B}║${E}                                                              ${W}${B}║${E}"
+            echo -e "  ${W}${B}║${E}  ${G}${B}▶ Нажми [1]${E} — укажи домены заново, стек перезапустится    ${W}${B}║${E}"
+            echo -e "  ${W}${B}║${E}    с правильным конфигом. Ничего не потеряется.              ${W}${B}║${E}"
+            echo -e "  ${W}${B}║${E}                                                              ${W}${B}║${E}"
+            echo -e "  ${W}${B}║${E}  ${R}${B}[d]${E} — Полностью удалить и начать с нуля                    ${W}${B}║${E}"
+            echo -e "  ${W}${B}║${E}                                                              ${W}${B}║${E}"
+            echo -e "  ${W}${B}╚══════════════════════════════════════════════════════════════╝${E}"
             echo ""
         else
             echo ""
@@ -335,6 +392,7 @@ _vgw_menu_status_block() {
         fi
         return 0
     fi
+
 
     # ── Лендинг настроен — показываем статус ─────────────────────
     local hide_return acme_enabled
@@ -444,6 +502,8 @@ data['edge'] = edge
 p.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding='utf-8')
 print('ok')
 PY
+    # Синхронизируем персистентный файл
+    _vgw_cfg_save_persistent
 }
 
 # Сканирует nginx на хосте и в docker, возвращает тип: "host", "docker" или ""
@@ -821,6 +881,8 @@ sec['hide_payment_return'] = os.environ['TARGET_VALUE'].strip().lower() == 'true
 data['security']=sec
 p.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding='utf-8')
 PY2
+    # Синхронизируем персистентный файл
+    _vgw_cfg_save_persistent
 }
 
 vgw_toggle_hide_payment_return() {
