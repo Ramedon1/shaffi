@@ -870,9 +870,12 @@ _vgw_nginx_inject_auto() {
                 # но пути прописываем контейнерные!
                 local host_cert="${csrc_host}/fullchain.pem"
                 local host_key="${csrc_host}/privkey.pem"
-                if [[ -f "$host_cert" && -f "$host_key" ]]; then
+                if [[ -f "$host_cert" && -f "$host_key" && -n "$csrc_container" ]]; then
                     cert="${csrc_container}/fullchain.pem"
                     key="${csrc_container}/privkey.pem"
+                else
+                    cert="/etc/nginx/certs/fullchain.pem"
+                    key="/etc/nginx/certs/privkey.pem"
                 fi
             fi
         else
@@ -882,6 +885,9 @@ _vgw_nginx_inject_auto() {
             if [[ -f "$host_cert" && -f "$host_key" ]]; then
                 cert="$host_cert"
                 key="$host_key"
+            else
+                cert="/etc/nginx/certs/fullchain.pem"
+                key="/etc/nginx/certs/privkey.pem"
             fi
         fi
     fi
@@ -967,7 +973,7 @@ _vgw_nginx_manual_guide() {
             # Если это внешние сертификаты, проверяем существование на хосте
             local host_cert="${csrc_host}/fullchain.pem"
             local host_key="${csrc_host}/privkey.pem"
-            if [[ -f "$host_cert" && -f "$host_key" ]]; then
+            if [[ -f "$host_cert" && -f "$host_key" && -n "$csrc_container" ]]; then
                 # Используем путь внутри контейнера
                 cert="${csrc_container}/fullchain.pem"
                 key="${csrc_container}/privkey.pem"
