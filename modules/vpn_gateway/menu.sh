@@ -1245,7 +1245,7 @@ vgw_install_wizard(){
 
     # ── УМНАЯ NGINX ИНТЕГРАЦИЯ ────────────────────────────────────
     local public_domain
-    public_domain=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('edge',{}).get('public_domain',''))" 2>/dev/null || echo "")
+    public_domain=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('quick_setup',{}).get('public_domain',''))" 2>/dev/null || echo "")
 
     if [[ -n "$public_domain" && "$public_domain" != "vpn.example.com" ]]; then
         local nginx_type cname="" cpath="" csrc
@@ -1311,7 +1311,7 @@ vgw_reconfigure_wizard(){
         saved_domain=$(grep '^DOMAIN=' "$persist_inj" | cut -d= -f2-)
         local cfg_file="$(_vgw_cfg_file)"
         local py_bin; py_bin="$(_vgw_python)"
-        local new_domain; new_domain=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('edge',{}).get('public_domain',''))" 2>/dev/null || echo "")
+        local new_domain; new_domain=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('quick_setup',{}).get('public_domain',''))" 2>/dev/null || echo "")
         if [[ -n "$saved_type" && -n "$new_domain" ]]; then
             local https_port
             https_port=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('edge',{}).get('https_port',443))" 2>/dev/null || echo "443")
