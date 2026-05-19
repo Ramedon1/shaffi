@@ -571,23 +571,12 @@ PY
 _vgw_smart_nginx_detect() {
     local http_port="${1:-80}" https_port="${2:-443}"
 
-    # Наш контейнер уже запущен?
-    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "vpn-edge-nginx"; then
-        echo "our_container"; return 0
-    fi
-
-    # Порты свободны?
-    if _vgw_check_port_free "$http_port" && _vgw_check_port_free "$https_port"; then
+    # Если мы сами (gateway) занимаем 80 и 443 — внешний nginx нам не нужен, инжект не нужен
+    if [[ "$http_port" == "80" && "$https_port" == "443" ]]; then
         echo "free"; return 0
     fi
 
-    # Хостовый nginx?
-    if systemctl is-active --quiet nginx 2>/dev/null || \
-       { command -v nginx &>/dev/null && nginx -v &>/dev/null 2>&1; }; then
-        echo "host:nginx"; return 0
-    fi
-
-    # Docker контейнер занимает порт?
+    # Ищем внешний Docker nginx
     if command -v docker &>/dev/null; then
         local cname cimage
         # ищем любой запущенный nginx-контейнер кроме нашего
@@ -621,6 +610,12 @@ _vgw_smart_nginx_detect() {
             # Тип 5: прочий docker nginx
             echo "docker:nginx:${cname}"; return 0
         done < <(docker ps --format '{{.Names}}\t{{.Image}}' 2>/dev/null | grep -i nginx)
+    fi
+
+    # Хостовый nginx?
+    if systemctl is-active --quiet nginx 2>/dev/null || \
+       { command -v nginx &>/dev/null && nginx -v &>/dev/null 2>&1; }; then
+        echo "host:nginx"; return 0
     fi
 
     echo "unknown"
@@ -1250,7 +1245,7 @@ vgw_install_wizard(){
 
     # ── УМНАЯ NGINX ИНТЕГРАЦИЯ ────────────────────────────────────
     local public_domain
-    public_domain=$(_vgw_read_quick_field public_domain 2>/dev/null || echo "")
+    public_domain=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('edge',{}).get('domain',''))" 2>/dev/null || echo "")
 
     if [[ -n "$public_domain" && "$public_domain" != "vpn.example.com" ]]; then
         local nginx_type cname="" cpath="" csrc
@@ -1314,10 +1309,10 @@ vgw_reconfigure_wizard(){
         saved_type=$(grep '^NGINX_TYPE=' "$persist_inj" | cut -d= -f2-)
         saved_file=$(grep '^CONF_FILE=' "$persist_inj" | cut -d= -f2-)
         saved_domain=$(grep '^DOMAIN=' "$persist_inj" | cut -d= -f2-)
-        local new_domain; new_domain=$(_vgw_read_quick_field public_domain 2>/dev/null || echo "")
+        local cfg_file="$(_vgw_cfg_file)"
+        local py_bin; py_bin="$(_vgw_python)"
+        local new_domain; new_domain=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('edge',{}).get('domain',''))" 2>/dev/null || echo "")
         if [[ -n "$saved_type" && -n "$new_domain" ]]; then
-            local cfg_file="$(_vgw_cfg_file)"
-            local py_bin; py_bin="$(_vgw_python)"
             local https_port
             https_port=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('edge',{}).get('https_port',443))" 2>/dev/null || echo "443")
             info "Домен изменён — обновляю nginx конфиг..."
