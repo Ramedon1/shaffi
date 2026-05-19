@@ -680,7 +680,7 @@ _vgw_find_nginx_conf_dir() {
 _vgw_nginx_generate_conf() {
     local domain="$1" gw_port="$2" cert="${3:-}" key="${4:-}"
     local ssl_block
-    if [[ -n "$cert" && -f "$cert" ]]; then
+    if [[ -n "$cert" ]]; then
         ssl_block="    ssl_certificate     ${cert};"$'\n'"    ssl_certificate_key ${key};"
     else
         ssl_block="    # ⚠️  Сертификат не найден. Установите certbot и выпустите сертификат!
@@ -919,9 +919,20 @@ _vgw_nginx_manual_guide() {
     local ntype="$1" cname="${2:-}" cpath="${3:-}" csrc="${4:-none}" domain="$5" gport="$6"
     local W="$C_YELLOW" C="$C_CYAN" G="$C_GREEN" R="$C_RED" B="$C_BOLD" E="$C_RESET"
 
-    local cert="" key=""
-    local docker_mount_notice="1"
+    local csrc_type="none" csrc_host="" csrc_container=""
+    if [[ "$csrc" != "none" ]]; then
+        csrc_type=$(echo "$csrc" | cut -d: -f1)
+        csrc_host=$(echo "$csrc" | cut -d: -f2)
+        csrc_container=$(echo "$csrc" | cut -d: -f3)
+    fi
+    [[ -z "$csrc_host" ]] && csrc_host="$(_vgw_certs_dir)"
 
+    local docker_mount_notice="1"
+    if [[ "$csrc_type" == "certwarden" || "$csrc_type" == "letsencrypt" ]]; then
+        docker_mount_notice="0"
+    fi
+
+    local cert="" key=""
     if [[ -n "$cname" ]]; then
         cert="/etc/nginx/certs/fullchain.pem"
         key="/etc/nginx/certs/privkey.pem"
@@ -1208,12 +1219,20 @@ print(c.get('quick_setup',{}).get('origin_domain','cabinet.example.com'))" 2>/de
 
     # Определяем сертификаты
     local ssl_block
-    local cert_path="/etc/letsencrypt/live/${public_domain}"
-    if [[ -f "${cert_path}/fullchain.pem" ]]; then
-        ssl_block="    ssl_certificate     ${cert_path}/fullchain.pem;
-    ssl_certificate_key ${cert_path}/privkey.pem;"
+    local resolved_cert_path=""
+    if [[ -f "/etc/letsencrypt/live/${public_domain}/fullchain.pem" ]]; then
+        resolved_cert_path="/etc/letsencrypt/live/${public_domain}"
+    elif [[ -f "/etc/reshala-bedolaga/certs/fullchain.pem" ]]; then
+        resolved_cert_path="/etc/reshala-bedolaga/certs"
+    elif [[ -f "$(_vgw_certs_dir)/fullchain.pem" ]]; then
+        resolved_cert_path="$(_vgw_certs_dir)"
+    fi
+
+    if [[ -n "$resolved_cert_path" ]]; then
+        ssl_block="    ssl_certificate     ${resolved_cert_path}/fullchain.pem;
+    ssl_certificate_key ${resolved_cert_path}/privkey.pem;"
     else
-        ssl_block="    # ⚠️ Сертификат Let's Encrypt не найден по стандартному пути!
+        ssl_block="    # ⚠️ Сертификат Let's Encrypt не найден по стандартным путям!
     # Подставлен временный сертификат, чтобы Nginx смог запуститься.
     # Обязательно получите реальный сертификат с помощью certbot!
     ssl_certificate     /etc/ssl/certs/ssl-cert-snakeoil.pem;
