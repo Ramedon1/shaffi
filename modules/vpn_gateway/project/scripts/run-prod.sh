@@ -75,10 +75,8 @@ EDGE_HTTPS_PORT=${EDGE_HTTPS_PORT}
 EOF
 
 cd "${ROOT_DIR}"
-if [[ ! -f "${ROOT_DIR}/edge/certs/fullchain.pem" || ! -f "${ROOT_DIR}/edge/certs/privkey.pem" ]]; then
-  echo "[info] Сертификаты не найдены, запускаю автоматический выпуск"
-  ./scripts/ensure-certs.sh
-fi
+echo "[info] Проверяю SSL-сертификаты..."
+./scripts/ensure-certs.sh
 
 EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml down --remove-orphans || true
 

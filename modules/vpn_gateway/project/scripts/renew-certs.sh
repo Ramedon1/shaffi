@@ -76,19 +76,63 @@ fi
 
 if command -v certbot >/dev/null 2>&1; then
   certbot renew --webroot -w "${ACME_WEBROOT_DIR}" --quiet
+  if [[ -f "/etc/letsencrypt/live/${EDGE_DOMAIN}/fullchain.pem" && -f "/etc/letsencrypt/live/${EDGE_DOMAIN}/privkey.pem" ]]; then
+    cp -f "/etc/letsencrypt/live/${EDGE_DOMAIN}/fullchain.pem" "${CERTS_DIR}/fullchain.pem"
+    cp -f "/etc/letsencrypt/live/${EDGE_DOMAIN}/privkey.pem"   "${CERTS_DIR}/privkey.pem"
+  fi
 else
   docker run --rm \
     -v "${ACME_WEBROOT_DIR}:/var/www/acme-challenge" \
     -v "${LE_DIR}:/etc/letsencrypt" \
     certbot/certbot:latest renew --webroot -w /var/www/acme-challenge --quiet
+  if [[ -f "${LE_DIR}/live/${EDGE_DOMAIN}/fullchain.pem" && -f "${LE_DIR}/live/${EDGE_DOMAIN}/privkey.pem" ]]; then
+    cp -f "${LE_DIR}/live/${EDGE_DOMAIN}/fullchain.pem" "${CERTS_DIR}/fullchain.pem"
+    cp -f "${LE_DIR}/live/${EDGE_DOMAIN}/privkey.pem"   "${CERTS_DIR}/privkey.pem"
+  fi
 fi
 
-if [[ -f "${LE_DIR}/live/${EDGE_DOMAIN}/fullchain.pem" && -f "${LE_DIR}/live/${EDGE_DOMAIN}/privkey.pem" ]]; then
-  cp "${LE_DIR}/live/${EDGE_DOMAIN}/fullchain.pem" "${CERTS_DIR}/fullchain.pem"
-  cp "${LE_DIR}/live/${EDGE_DOMAIN}/privkey.pem" "${CERTS_DIR}/privkey.pem"
+# Синхронизация с персистентным хранилищем бэкапа
+PERSIST_CERTS_DIR="/etc/reshala-bedolaga/certs"
+if [[ -f "${CERTS_DIR}/fullchain.pem" && -f "${CERTS_DIR}/privkey.pem" ]]; then
+  mkdir -p "${PERSIST_CERTS_DIR}" 2>/dev/null && \
+    cp -f "${CERTS_DIR}/fullchain.pem" "${PERSIST_CERTS_DIR}/fullchain.pem" && \
+    cp -f "${CERTS_DIR}/privkey.pem"   "${PERSIST_CERTS_DIR}/privkey.pem"   && \
+    chmod 600 "${PERSIST_CERTS_DIR}/privkey.pem" && \
+    echo "[ok] Сертификат продублирован в бэкап ${PERSIST_CERTS_DIR}" || \
+    echo "[warn] Не удалось скопировать сертификат в бэкап ${PERSIST_CERTS_DIR}"
 fi
 
-EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml exec -T edge-nginx nginx -t
-EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml exec -T edge-nginx nginx -s reload
+# Релоад встроенного nginx (только если запущен)
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "vpn-edge-nginx"; then
+  EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml exec -T edge-nginx nginx -t || true
+  EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml exec -T edge-nginx nginx -s reload || true
+  echo "[ok] Встроенный edge-nginx успешно перезагружен"
+fi
 
-echo "[ok] Проверка и reload сертификатов выполнены"
+# Релоад внешнего инжектированного nginx, если он настроен
+PERSIST_INJ="/etc/reshala-bedolaga/nginx_injection.env"
+if [[ -f "$PERSIST_INJ" ]]; then
+  echo "[info] Обнаружено авто-внедрение внешнего Nginx. Выполняю перезапуск..."
+  saved_type=$(grep '^NGINX_TYPE=' "$PERSIST_INJ" | cut -d= -f2-)
+  saved_file=$(grep '^CONF_FILE=' "$PERSIST_INJ" | cut -d= -f2-)
+  saved_domain=$(grep '^DOMAIN=' "$PERSIST_INJ" | cut -d= -f2-)
+  
+  if [[ "$saved_type" == "host:nginx" ]]; then
+    if nginx -t 2>/dev/null; then
+      systemctl reload nginx 2>/dev/null && echo "[ok] Хостовый nginx успешно перезагружен" || echo "[warn] Не удалось перезагрузить хостовый nginx"
+    else
+      echo "[error] Ошибка конфигурации хостового nginx!"
+    fi
+  elif [[ "$saved_type" == docker:* ]]; then
+    cname=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i nginx | grep -v vpn-edge-nginx | head -1)
+    if [[ -n "$cname" ]]; then
+      if docker exec "$cname" nginx -t 2>/dev/null; then
+        docker exec "$cname" nginx -s reload 2>/dev/null && echo "[ok] Внешний docker-nginx (${cname}) успешно перезагружен" || echo "[warn] Не удалось перезагрузить внешний docker-nginx (${cname})"
+      else
+        echo "[error] Ошибка конфигурации внешнего docker-nginx (${cname})!"
+      fi
+    fi
+  fi
+fi
+
+echo "[ok] Обновление сертификатов и reload сервисов успешно завершены"

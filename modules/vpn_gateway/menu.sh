@@ -24,6 +24,10 @@ _vgw_project_dir() { echo "${VPN_GATEWAY_MODULE_PROJECT_DIR:-/opt/vpn-gateway-pr
 _vgw_ctl_path() { local project_dir="$(_vgw_project_dir)"; local rel="${VPN_GATEWAY_MODULE_CTL_RELATIVE:-scripts/gatewayctl.sh}"; echo "${project_dir}/${rel}"; }
 
 _vgw_validate_environment() {
+    # Автовосстановление конфига и сертификатов перед любой валидацией/действием
+    _vgw_cfg_restore_if_needed
+    _vgw_certs_restore_if_needed
+
     local project_dir="$(_vgw_project_dir)" ctl="$(_vgw_ctl_path)"
     [[ -d "$project_dir" ]] || { printf_error "Не найдена директория VPN Gateway: ${project_dir}"; return 1; }
     [[ -x "$ctl" ]] || { printf_error "Не найден исполняемый gatewayctl: ${ctl}"; return 1; }
@@ -640,8 +644,12 @@ _vgw_detect_cert_source() {
     fi
     # Let's Encrypt на хосте?
     [[ -d /etc/letsencrypt/live ]] && echo "letsencrypt:/etc/letsencrypt" && return 0
-    # Наш /etc/reshala-bedolaga/certs?
-    [[ -f /etc/reshala-bedolaga/certs/fullchain.pem ]] && echo "reshala:/etc/reshala-bedolaga/certs" && return 0
+    # Наш рабочий каталог сертификатов (всегда отдаем его, так как авто-восстановление переносит бэкапы сюда)
+    local live_certs_dir; live_certs_dir="$(_vgw_certs_dir)"
+    if [[ -f "${live_certs_dir}/fullchain.pem" || -f /etc/reshala-bedolaga/certs/fullchain.pem ]]; then
+        echo "reshala:${live_certs_dir}"
+        return 0
+    fi
     echo "none"
 }
 
@@ -874,16 +882,59 @@ _vgw_nginx_inject_auto() {
 
 # Генерирует точную инструкцию для ручной установки под любой тип nginx
 _vgw_nginx_manual_guide() {
-    local ntype="$1" cname="${2:-}" cpath="${3:-}" domain="$4" gport="$5"
+    local ntype="$1" cname="${2:-}" cpath="${3:-}" csrc="${4:-none}" domain="$5" gport="$6"
     local W="$C_YELLOW" C="$C_CYAN" G="$C_GREEN" R="$C_RED" B="$C_BOLD" E="$C_RESET"
+
+    local cert="" key=""
+    local csrc_type="${csrc%%:*}" csrc_path="${csrc#*:}"
+    if [[ "$csrc_type" != "none" && -n "$csrc_path" ]]; then
+        cert="${csrc_path}/fullchain.pem"
+        key="${csrc_path}/privkey.pem"
+        [[ -f "$cert" ]] || cert=""
+        [[ -f "$key" ]]  || key=""
+    fi
+
+    # Наш докер-монтируемый нотис
+    local docker_mount_notice="0"
+    if [[ -n "$cname" && "$csrc_type" == "reshala" ]]; then
+        docker_mount_notice="1"
+        cert="/etc/nginx/certs/fullchain.pem"
+        key="/etc/nginx/certs/privkey.pem"
+    fi
+
     local conf_content
-    conf_content=$(_vgw_nginx_generate_conf "$domain" "$gport")
+    conf_content=$(_vgw_nginx_generate_conf "$domain" "$gport" "$cert" "$key")
 
     echo ""
     echo -e "  ${W}${B}╔══════════════════════════════════════════════════════════════╗${E}"
     echo -e "  ${W}${B}║${E}  📋  ${B}Инструкция: ручная установка nginx${E}"
     echo -e "  ${W}${B}╚══════════════════════════════════════════════════════════════╝${E}"
     echo ""
+
+    if [[ "$docker_mount_notice" == "1" ]]; then
+        echo -e "  ${G}${B}🔑 ОБНАРУЖЕНЫ СЕРТИФИКАТЫ!${E}"
+        echo -e "  На сервере найдены рабочие SSL-сертификаты в:"
+        echo -e "  ${C}${csrc_path}${E}"
+        echo ""
+        echo -e "  Чтобы контейнер Nginx (${C}${cname}${E}) мог их прочесть, добавьте"
+        echo -e "  в секцию ${B}volumes:${E} вашего Nginx в ${B}docker-compose.yml${E}:"
+        echo -e "  ${G}    - ${csrc_path}:/etc/nginx/certs:ro${E}"
+        echo ""
+        echo -e "  После добавления перезапустите Nginx контейнер:"
+        echo -e "  ${G}  docker compose up -d${E}"
+        echo ""
+        echo -e "  Конфиг ниже уже настроен на использование путей ${G}/etc/nginx/certs/...${E}"
+        echo "  ────────────────────────────────────────────────────"
+        echo ""
+    elif [[ "$csrc_type" == "reshala" && -z "$cname" ]]; then
+        echo -e "  ${G}${B}🔑 ОБНАРУЖЕНЫ СЕРТИФИКАТЫ!${E}"
+        echo -e "  На сервере найдены рабочие SSL-сертификаты в:"
+        echo -e "  ${C}${csrc_path}${E}"
+        echo ""
+        echo -e "  Конфиг ниже уже настроен на их использование напрямую!"
+        echo "  ────────────────────────────────────────────────────"
+        echo ""
+    fi
 
     case "$ntype" in
         host:nginx)
@@ -1273,7 +1324,7 @@ vgw_install_wizard(){
                 # Авто-инжект невозможен — сразу показываем инструкцию
                 echo ""
                 warn "Авто-инжект nginx невозможен. Показываю инструкцию..."
-                _vgw_nginx_manual_guide "$nginx_type" "$cname" "$cpath" "$public_domain" "$https_port"
+                _vgw_nginx_manual_guide "$nginx_type" "$cname" "$cpath" "$csrc" "$public_domain" "$https_port"
                 ;;
             *)
                 # Для host:nginx, docker:conf.d:*, docker:nginx:* — показываем план
@@ -1281,13 +1332,13 @@ vgw_install_wizard(){
                     # Пользователь выбрал y
                     if ! _vgw_nginx_inject_auto "$nginx_type" "$cname" "$cpath" "$csrc" "$public_domain" "$https_port"; then
                         warn "Авто-инжект не удался. Показываю инструкцию для ручной установки..."
-                        _vgw_nginx_manual_guide "$nginx_type" "$cname" "$cpath" "$public_domain" "$https_port"
+                        _vgw_nginx_manual_guide "$nginx_type" "$cname" "$cpath" "$csrc" "$public_domain" "$https_port"
                     else
                         ok "Nginx успешно настроен!"
                     fi
                 else
                     # Пользователь выбрал n — показываем инструкцию
-                    _vgw_nginx_manual_guide "$nginx_type" "$cname" "$cpath" "$public_domain" "$https_port"
+                    _vgw_nginx_manual_guide "$nginx_type" "$cname" "$cpath" "$csrc" "$public_domain" "$https_port"
                 fi
                 ;;
         esac
