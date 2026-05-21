@@ -16,6 +16,7 @@ GEO_COUNTRIES_FILE="${GEO_CONFIG_DIR}/countries.txt"
 GEO_IPSET_NAME="reshala_geoblock"
 GEO_SERVICE_FILE="/etc/systemd/system/reshala-geoblock.service"
 GEO_RESTORE_SCRIPT="/usr/local/bin/reshala-geoblock-restore.sh"
+GLOBAL_WHITELIST_FILE="/etc/reshala/global-whitelist.txt"
 
 # Полный список стран ISO 3166-1 alpha-2
 declare -A GEO_ALL_COUNTRIES=(
@@ -92,13 +93,22 @@ show_geoblock_menu() {
     done
 }
 
+_geo_get_ipset_count() {
+    local set_name="$1"
+    if ! ipset list "$set_name" -terse &>/dev/null; then
+        echo "0"
+        return
+    fi
+    ipset list "$set_name" -terse 2>/dev/null | grep -Fi "Number of entries:" | awk '{print $4}' || echo "0"
+}
+
 _geo_show_status() {
     print_separator
     info "Статус Geo-Block"
 
     if ipset list "$GEO_IPSET_NAME" &>/dev/null 2>&1; then
         local ip_count
-        ip_count=$(ipset list "$GEO_IPSET_NAME" 2>/dev/null | grep -c "^[0-9]" || echo "0")
+        ip_count=$(_geo_get_ipset_count "$GEO_IPSET_NAME")
         printf_description "Состояние: ${C_GREEN}Активен${C_RESET}"
         printf_description "Заблокировано подсетей: ${C_CYAN}${ip_count}${C_RESET}"
 
@@ -329,6 +339,9 @@ _geo_activate() {
     run_cmd ipset destroy "$GEO_IPSET_NAME" 2>/dev/null || true
     run_cmd ipset create "$GEO_IPSET_NAME" hash:net hashsize 65536 maxelem 500000
 
+    local temp_restore
+    temp_restore=$(mktemp)
+
     # Загружаем зоны стран
     local total=0
     while IFS= read -r country; do
@@ -346,16 +359,25 @@ _geo_activate() {
         fi
 
         local count=0
-        while IFS= read -r subnet; do
-            [[ -z "$subnet" ]] && continue
-            run_cmd ipset add "$GEO_IPSET_NAME" "$subnet" 2>/dev/null || true
-            ((count++))
-        done <<< "$zone_data"
-        total=$((total + count))
-        ok "  ${country}: ${count} подсетей"
+        count=$(echo "$zone_data" | grep -c "^[0-9]" || echo "0")
+        if [[ "$count" -gt 0 ]]; then
+            echo "$zone_data" | awk -v set_name="$GEO_IPSET_NAME" '/^[0-9]/ {print "add " set_name " " $1 " -exist"}' >> "$temp_restore"
+            total=$((total + count))
+            ok "  ${country}: ${count} подсетей подготовлена для загрузки"
+        else
+            warn "Не удалось получить подсети для ${country}."
+        fi
     done < "$GEO_COUNTRIES_FILE"
 
-    ok "Загружено подсетей: ${total}"
+    if [[ "$total" -gt 0 ]]; then
+        info "Применяю правила блокировки для ${total} подсетей (пакетный режим через ipset restore)..."
+        if run_cmd ipset restore < "$temp_restore"; then
+            ok "Загружено подсетей: ${total}"
+        else
+            err "Ошибка при восстановлении ipset!"
+        fi
+    fi
+    rm -f "$temp_restore"
 
     # Добавляем whitelist из Глобального Белого Списка
     info "Добавляю IP из Глобального Белого Списка в обход..."
@@ -365,9 +387,17 @@ _geo_activate() {
         # Создаем whitelist ipset
         run_cmd ipset destroy reshala_geo_whitelist 2>/dev/null || true
         run_cmd ipset create reshala_geo_whitelist hash:net hashsize 256 maxelem 1024 2>/dev/null || true
-        for ip in "${wl_ips[@]}"; do
-            run_cmd ipset add reshala_geo_whitelist "$ip" 2>/dev/null || true
-        done
+        
+        # Оптимизируем загрузку белого списка через ipset restore
+        if [[ ${#wl_ips[@]} -gt 0 ]]; then
+            local temp_wl_restore
+            temp_wl_restore=$(mktemp)
+            for ip in "${wl_ips[@]}"; do
+                echo "add reshala_geo_whitelist $ip -exist" >> "$temp_wl_restore"
+            done
+            run_cmd ipset restore < "$temp_wl_restore"
+            rm -f "$temp_wl_restore"
+        fi
         ok "Whitelist: ${#wl_ips[@]} IP добавлены в обход."
     fi
 
@@ -431,8 +461,8 @@ geo_block = """
 # --- НАЧАЛО: Reshala Geo-Block ---
 # Белый список (обход Geo-Block)
 -A ufw-before-input -m set --match-set reshala_geo_whitelist src -j ACCEPT
-# Блокировка по странам
--A ufw-before-input -m set --match-set ${GEO_IPSET_NAME} src -j DROP
+# Блокировка по странам (только новые входящие соединения)
+-A ufw-before-input -m set --match-set ${GEO_IPSET_NAME} src -m conntrack --ctstate NEW -j DROP
 # --- КОНЕЦ: Reshala Geo-Block ---
 """
 
@@ -470,21 +500,36 @@ ipset create ${GEO_IPSET_NAME} hash:net hashsize 65536 maxelem 500000
 COUNTRIES_FILE="${GEO_COUNTRIES_FILE}"
 [[ ! -f "\$COUNTRIES_FILE" ]] && exit 0
 
+TEMP_RESTORE=\$(mktemp)
+
 while IFS= read -r country; do
     [[ -z "\$country" ]] && continue
     country=\$(echo "\$country" | xargs | tr '[:upper:]' '[:lower:]')
-    curl -s --max-time 15 "https://www.ipdeny.com/ipblocks/data/aggregated/\${country}-aggregated.zone" | while read -r subnet; do
-        [[ -n "\$subnet" ]] && ipset add ${GEO_IPSET_NAME} "\$subnet" 2>/dev/null || true
-    done
+    
+    ZONE_DATA=\$(curl -s --max-time 15 "https://www.ipdeny.com/ipblocks/data/aggregated/\${country}-aggregated.zone" 2>/dev/null)
+    if [[ -n "\$ZONE_DATA" ]]; then
+        echo "\$ZONE_DATA" | awk -v set_name="${GEO_IPSET_NAME}" '/^[0-9]/ {print "add " set_name " " \$1 " -exist"}' >> "\$TEMP_RESTORE"
+    fi
 done < "\$COUNTRIES_FILE"
+
+if [[ -s "\$TEMP_RESTORE" ]]; then
+    ipset restore < "\$TEMP_RESTORE"
+fi
+rm -f "\$TEMP_RESTORE"
 
 # Whitelist
 ipset destroy reshala_geo_whitelist 2>/dev/null || true
 ipset create reshala_geo_whitelist hash:net hashsize 256 maxelem 1024 2>/dev/null || true
+
 if [[ -f "${GLOBAL_WHITELIST_FILE}" ]]; then
+    TEMP_WL_RESTORE=\$(mktemp)
     grep -v '^\s*#' "${GLOBAL_WHITELIST_FILE}" | grep -v '^\s*$' | awk '{print \$1}' | while read -r ip; do
-        ipset add reshala_geo_whitelist "\$ip" 2>/dev/null || true
+        [[ -n "\$ip" ]] && echo "add reshala_geo_whitelist \$ip -exist" >> "\$TEMP_WL_RESTORE"
     done
+    if [[ -s "\$TEMP_WL_RESTORE" ]]; then
+        ipset restore < "\$TEMP_WL_RESTORE"
+    fi
+    rm -f "\$TEMP_WL_RESTORE"
 fi
 SCRIPT
     run_cmd chmod +x "$GEO_RESTORE_SCRIPT"
@@ -519,7 +564,7 @@ _geo_show_stats() {
     fi
 
     local total
-    total=$(ipset list "$GEO_IPSET_NAME" 2>/dev/null | grep -c "^[0-9]" || echo "0")
+    total=$(_geo_get_ipset_count "$GEO_IPSET_NAME")
     ok "Заблокировано подсетей: ${C_CYAN}${total}${C_RESET}"
 
     if [[ -f "$GEO_COUNTRIES_FILE" ]]; then
