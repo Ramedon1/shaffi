@@ -909,6 +909,34 @@ _f2b_reload_or_start() {
     fi
 }
 
+_f2b_validate_log_path() {
+    local path="$1"
+    [[ "$path" == "systemd" ]] && return 0
+    [[ -z "$path" ]] && return 1
+
+    # Check for wildcards
+    if [[ "$path" == *"*"* ]]; then
+        local files
+        files=$(ls $path 2>/dev/null)
+        if [[ -z "$files" ]]; then
+            warn "Файлы по маске '$path' не найдены."
+            if ! ask_yes_no "Использовать этот путь все равно?"; then
+                return 1
+            fi
+        fi
+        return 0
+    fi
+
+    # Check normal file
+    if [[ ! -f "$path" ]]; then
+        warn "Файл лога '$path' не найден на сервере."
+        if ! ask_yes_no "Использовать этот путь все равно?"; then
+            return 1
+        fi
+    fi
+    return 0
+}
+
 _f2b_jail_submenu() {
     local jail_name="$1"
     local log_type="$2"
@@ -919,6 +947,9 @@ _f2b_jail_submenu() {
 
     local current_p="$default_port"
     local current_a="$default_action"
+    local is_enabled="false"
+    local current_log="Не задан"
+    local current_maxretry="3"
 
     while true; do
         clear
@@ -927,14 +958,16 @@ _f2b_jail_submenu() {
         printf_description "$menu_title"
         print_separator
 
-        local is_enabled="false"
-        local current_log="Не задан"
-        local current_maxretry="3"
         local filter_file="/etc/fail2ban/filter.d/${jail_name}.conf"
+
+        # Сбрасываем is_enabled перед перепроверкой
+        is_enabled="false"
 
         if grep -q "^\s*\[$jail_name\]" /etc/fail2ban/jail.local 2>/dev/null; then
             if grep -A 10 "^\s*\[$jail_name\]" /etc/fail2ban/jail.local 2>/dev/null | grep -q "enabled\s*=\s*true"; then
                 is_enabled="true"
+            else
+                is_enabled="false"
             fi
             local extracted_log
             extracted_log=$(grep -A 10 "^\s*\[$jail_name\]" /etc/fail2ban/jail.local 2>/dev/null | grep "^\s*logpath\s*=" | head -1 | awk -F'=' '{print $2}' | xargs)
@@ -961,9 +994,24 @@ _f2b_jail_submenu() {
 
         local current_action_desc="Полная изоляция (все порты)"
         if [[ -n "$current_a" ]]; then
-            if [[ "$current_a" != *"port=any"* ]]; then
-                local act_port; act_port=$(echo "$current_a" | grep -o "port=[^,]*" | cut -d= -f2)
-                current_action_desc="Только сервис (порт ${act_port:-?})"
+            if [[ "$current_a" == *"ufw"* ]]; then
+                local act_port=""
+                if [[ "$current_a" == *"port="* ]]; then
+                    act_port=$(echo "$current_a" | grep -o "port=[^,]*" | cut -d= -f2 | tr -d ']"')
+                fi
+                
+                # Если порт в действии пустой или ссылается на макрос, используем текущий порт джейла
+                if [[ -z "$act_port" || "$act_port" == "%(port)s" ]]; then
+                    act_port="$current_p"
+                fi
+                
+                if [[ "$act_port" == "any" || -z "$act_port" ]]; then
+                    current_action_desc="Полная изоляция (все порты)"
+                else
+                    current_action_desc="Только сервис (порт $act_port)"
+                fi
+            else
+                current_action_desc="Стандартный Fail2Ban (${current_a})"
             fi
         fi
 
@@ -1074,28 +1122,33 @@ JAIL
                 ;;
             3)
                 if [[ "$log_type" == "nginx-access" ]]; then
-                    _f2b_detect_nginx_log "access"
+                    _f2b_detect_nginx_log "access" || continue
                 elif [[ "$log_type" == "nginx-error" ]]; then
-                    _f2b_detect_nginx_log "error"
+                    _f2b_detect_nginx_log "error" || continue
                 elif [[ "$log_type" == "syslog" ]]; then
-                    _f2b_detect_syslog
+                    _f2b_detect_syslog || continue
                 else
                     F2B_SELECTED_LOG=$(ask_non_empty "Введите путь к логу") || continue
                 fi
                 
-                if [[ -n "$F2B_SELECTED_LOG" ]] && { [[ "$F2B_SELECTED_LOG" == "systemd" ]] || [[ -f "$F2B_SELECTED_LOG" ]]; }; then
+                # Проверяем существование файла лога с выдачей предупреждения
+                if ! _f2b_validate_log_path "$F2B_SELECTED_LOG"; then
+                    wait_for_enter
+                    continue
+                fi
+
+                if [[ -n "$F2B_SELECTED_LOG" ]]; then
                     if grep -q "^\s*\[$jail_name\]" /etc/fail2ban/jail.local 2>/dev/null; then
                         if [[ "$F2B_SELECTED_LOG" == "systemd" ]]; then
-                            # Удаляем logpath
+                            # Удаляем logpath из секции джейла, если он был
                             run_cmd sed -i "/^\[$jail_name\]/,/^\s*\[/ {/^\s*logpath\s*=/d}" /etc/fail2ban/jail.local
-                            # Добавляем или обновляем backend = systemd
                             if grep -A 10 "^\s*\[$jail_name\]" /etc/fail2ban/jail.local | grep -q "^\s*backend\s*="; then
                                 run_cmd sed -i "/^\[$jail_name\]/,/^\s*\[/ s|^\s*backend\s*=.*|backend = systemd|" /etc/fail2ban/jail.local
                             else
                                 run_cmd sed -i "/^\[$jail_name\]/a backend = systemd" /etc/fail2ban/jail.local
                             fi
                         else
-                            # Удаляем backend = systemd
+                            # Удаляем backend = systemd, если он был
                             run_cmd sed -i "/^\[$jail_name\]/,/^\s*\[/ {/^\s*backend\s*=\s*systemd/d}" /etc/fail2ban/jail.local
                             # Добавляем или обновляем logpath
                             if grep -A 10 "^\s*\[$jail_name\]" /etc/fail2ban/jail.local | grep -q "^\s*logpath\s*="; then
@@ -1107,7 +1160,7 @@ JAIL
                         ok "Лог обновлен."
                         [[ "$is_enabled" == "true" ]] && _f2b_reload_or_start
                     else
-                        # Store in temp var until enabled
+                        # Сохраняем во временную переменную до включения джейла
                         current_log="$F2B_SELECTED_LOG"
                         ok "Лог выбран. Включите защиту для применения."
                     fi
