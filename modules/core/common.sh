@@ -239,6 +239,10 @@ safe_read() {
         
     read -e -p "$prompt_full" result || return 130
     
+    # Очистка от кареточных символов Windows (\r, \n)
+    result="${result//$'\r'/}"
+    result="${result//$'\n'/}"
+    
     if [[ -z "$result" && -n "$default" ]]; then
         result="$default"
     fi

@@ -143,6 +143,70 @@ _geo_print_card_header() {
     echo -e "  ${C_CYAN}║${C_RESET}  ${left_pad}${C_WHITE}${title}${C_RESET}"
 }
 
+_geo_get_cron_schedule() {
+    local cron_file="/etc/cron.d/reshala-geoblock-update"
+    if [[ -f "$cron_file" ]]; then
+        local line
+        line=$(grep -v '^#' "$cron_file" | head -n 1)
+        if [[ -n "$line" ]]; then
+            echo "$line" | awk '{print $1" "$2" "$3" "$4" "$5}'
+        fi
+    fi
+}
+
+_geo_cron_to_readable() {
+    local cron_expr="$1"
+    if [[ -z "$cron_expr" ]]; then
+        echo "ВЫКЛЮЧЕНО"
+        return
+    fi
+
+    local min hour dom mon dow
+    read -r min hour dom mon dow <<< "$cron_expr"
+
+    if [[ "$min" == "0" && "$hour" == "3" && "$dom" == "*" && "$mon" == "*" && "$dow" == "1" ]]; then
+        echo "Каждый понедельник в 03:00"
+        return
+    fi
+    if [[ "$min" == "0" && "$hour" == "3" && "$dom" == "*" && "$mon" == "*" && "$dow" == "*" ]]; then
+        echo "Каждый день в 03:00"
+        return
+    fi
+
+    local dow_name=""
+    case "$dow" in
+        0|7) dow_name="воскресенье" ;;
+        1) dow_name="понедельник" ;;
+        2) dow_name="вторник" ;;
+        3) dow_name="среду" ;;
+        4) dow_name="четверг" ;;
+        5) dow_name="пятницу" ;;
+        6) dow_name="субботу" ;;
+        *) dow_name="" ;;
+    esac
+
+    local time_str=""
+    if [[ "$min" =~ ^[0-9]+$ && "$hour" =~ ^[0-9]+$ ]]; then
+        local min_val=$((10#$min))
+        local hour_val=$((10#$hour))
+        time_str=$(printf "%02d:%02d" "$hour_val" "$min_val")
+    else
+        time_str="в $hour:$min"
+    fi
+
+    if [[ "$dom" == "*" && "$mon" == "*" ]]; then
+        if [[ "$dow" == "*" ]]; then
+            echo "Каждый день в $time_str"
+        elif [[ -n "$dow_name" ]]; then
+            echo "Каждую $dow_name в $time_str"
+        else
+            echo "Cron: $cron_expr"
+        fi
+    else
+        echo "Cron: $cron_expr"
+    fi
+}
+
 _geo_show_status() {
     print_separator
     info "Статус Geo-Block"
@@ -200,7 +264,11 @@ _geo_show_status() {
 
     local autoupdate="${C_GRAY}Выключено${C_RESET}"
     if [[ -f "/etc/cron.d/reshala-geoblock-update" ]]; then
-        autoupdate="${C_GREEN}Включено (еженедельно)${C_RESET}"
+        local sched
+        sched=$(_geo_get_cron_schedule)
+        local readable
+        readable=$(_geo_cron_to_readable "$sched")
+        autoupdate="${C_GREEN}Включено (${readable})${C_RESET}"
     fi
 
     echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════${C_RESET}"
@@ -416,6 +484,8 @@ _geo_manage_countries() {
         choice=$(safe_read "Введите действие" "ok") || { break; }
 
         local choice_clean="${choice//,/ }"
+        choice_clean="${choice_clean//$'\r'/}"
+        choice_clean="${choice_clean//$'\n'/}"
         # Trim leading and trailing spaces using native Bash constructs
         choice_clean="${choice_clean#"${choice_clean%%[![:space:]]*}"}"
         choice_clean="${choice_clean%"${choice_clean##*[![:space:]]}"}"
@@ -581,8 +651,42 @@ _geo_manage_countries() {
 
         if [[ $handled_command -eq 0 ]]; then
             local toggled_any=0
+            local regex_range='^([0-9]+)-([0-9]+)$'
+            local regex_num='^[0-9]+$'
+            local regex_iso='^[a-zA-Z]{2}$'
             for token in "${tokens[@]}"; do
-                if [[ "$token" =~ ^[0-9]+$ ]]; then
+                if [[ "$token" =~ $regex_range ]]; then
+                    local start="${BASH_REMATCH[1]}"
+                    local end="${BASH_REMATCH[2]}"
+                    if (( start > end )); then
+                        local tmp="$start"
+                        start="$end"
+                        end="$tmp"
+                    fi
+                    local range_toggled=0
+                    local added_range_count=0
+                    local removed_range_count=0
+                    for (( idx=start; idx<=end; idx++ )); do
+                        local target_idx=$((page_start + idx - 1))
+                        if [[ "$idx" -ge 1 && "$target_idx" -le $page_end ]]; then
+                            local code="${filtered_codes[$target_idx]}"
+                            if [[ -n "${selected_countries[$code]:-}" ]]; then
+                                unset "selected_countries[$code]"
+                                removed_range_count=$((removed_range_count + 1))
+                            else
+                                selected_countries[$code]=1
+                                added_range_count=$((added_range_count + 1))
+                            fi
+                            toggled_any=1
+                            range_toggled=1
+                        fi
+                    done
+                    if [[ $range_toggled -eq 1 ]]; then
+                        ok "Диапазон $start-$end изменен (добавлено: $added_range_count, убрано: $removed_range_count)"
+                    else
+                        err "Неверный диапазон на странице: $start-$end"
+                    fi
+                elif [[ "$token" =~ $regex_num ]]; then
                     local idx="$token"
                     local target_idx=$((page_start + idx - 1))
                     if [[ "$idx" -ge 1 && "$target_idx" -le $page_end ]]; then
@@ -604,7 +708,7 @@ _geo_manage_countries() {
                     else
                         err "Неверный номер на странице: $idx"
                     fi
-                elif [[ "$token" =~ ^[a-zA-Z]{2}$ ]]; then
+                elif [[ "$token" =~ $regex_iso ]]; then
                     local code="${token^^}"
                     if [[ "$code" =~ ^[A-Z]{2}$ && -n "${GEO_ALL_COUNTRIES[$code]:-}" ]]; then
                         local country_name="${GEO_ALL_COUNTRIES[$code]}"
@@ -1271,30 +1375,10 @@ _geo_test_ip() {
     echo ""
 }
 
-_geo_toggle_auto_update() {
-    print_separator
-    info "Управление автоматическим обновлением"
-    print_separator
-
-    local cron_file="/etc/cron.d/reshala-geoblock-update"
+_geo_write_updater_script() {
     local updater_script="/usr/local/bin/reshala-geoblock-update.sh"
-
-    local active=0
-    if [[ -f "$cron_file" ]]; then
-        active=1
-    fi
-
-    if [[ $active -eq 1 ]]; then
-        printf_description "Текущий статус: ${C_GREEN}ВКЛЮЧЕНО (еженедельно)${C_RESET}"
-        if ask_yes_no "Выключить автоматическое обновление?"; then
-            run_cmd rm -f "$cron_file" "$updater_script" 2>/dev/null || true
-            ok "Автоматическое обновление выключено."
-        fi
-    else
-        printf_description "Текущий статус: ${C_RED}ВЫКЛЮЧЕНО${C_RESET}"
-        if ask_yes_no "Включить еженедельное обновление по понедельникам в 03:00?"; then
-            # Создаем скрипт тихого обновления
-            cat <<'UPDATE_SCRIPT' | run_cmd tee "$updater_script" > /dev/null
+    
+    cat <<'UPDATE_SCRIPT' | run_cmd tee "$updater_script" > /dev/null
 #!/bin/bash
 # Reshala Geo-Block: Тихое фоновое автообновление правил
 export SCRIPT_DIR="/opt/reshala"
@@ -1369,11 +1453,118 @@ fi
 rm -rf "$temp_dir"
 exit 0
 UPDATE_SCRIPT
-            run_cmd chmod +x "$updater_script"
 
-            # Создаем задачу в cron
-            echo "0 3 * * 1 root $updater_script" | run_cmd tee "$cron_file" > /dev/null
-            ok "Автоматическое обновление успешно настроено (каждый понедельник в 03:00)."
+    run_cmd chmod +x "$updater_script"
+}
+
+_geo_setup_cron_schedule() {
+    local cron_file="/etc/cron.d/reshala-geoblock-update"
+    local updater_script="/usr/local/bin/reshala-geoblock-update.sh"
+
+    echo ""
+    local sched_choice
+    sched_choice=$(ask_selection "Выберите расписание для автообновления:" \
+        "Каждый день в 03:00" \
+        "Раз в неделю (Понедельник) в 03:00 (Рекомендуется)" \
+        "Каждый день в указанный час" \
+        "В определенный день недели и час" \
+        "Задать произвольное Cron-выражение") || return
+
+    local cron_expr=""
+    case "$sched_choice" in
+        1)
+            cron_expr="0 3 * * *"
+            ;;
+        2)
+            cron_expr="0 3 * * 1"
+            ;;
+        3)
+            local hour
+            hour=$(ask_number_in_range "Введите час для обновления (0-23)" 0 23 "3") || return
+            cron_expr="0 $hour * * *"
+            ;;
+        4)
+            local dow
+            dow=$(ask_selection "Выберите день недели:" \
+                "Понедельник" \
+                "Вторник" \
+                "Среда" \
+                "Четверг" \
+                "Пятница" \
+                "Суббота" \
+                "Воскресенье") || return
+            local dow_cron="$dow"
+            if [[ "$dow" -eq 7 ]]; then
+                dow_cron="0"
+            fi
+            local hour
+            hour=$(ask_number_in_range "Введите час для обновления (0-23)" 0 23 "3") || return
+            cron_expr="0 $hour * * $dow_cron"
+            ;;
+        5)
+            while true; do
+                local custom
+                custom=$(ask_non_empty "Введите Cron-выражение (5 полей, например, '0 3 */2 * *')" "0 3 * * 1") || return
+                local field_count
+                field_count=$(echo "$custom" | awk '{print NF}')
+                if [[ "$field_count" -eq 5 ]]; then
+                    cron_expr="$custom"
+                    break
+                else
+                    err "Некорректное Cron-выражение. Должно быть ровно 5 полей."
+                fi
+            done
+            ;;
+    esac
+
+    if [[ -n "$cron_expr" ]]; then
+        _geo_write_updater_script || return
+        echo "$cron_expr root $updater_script" | run_cmd tee "$cron_file" > /dev/null
+        local readable
+        readable=$(_geo_cron_to_readable "$cron_expr")
+        ok "Автоматическое обновление успешно настроено: $readable"
+    fi
+}
+
+_geo_toggle_auto_update() {
+    print_separator
+    info "Управление автоматическим обновлением"
+    print_separator
+
+    local cron_file="/etc/cron.d/reshala-geoblock-update"
+    local updater_script="/usr/local/bin/reshala-geoblock-update.sh"
+
+    local active=0
+    if [[ -f "$cron_file" ]]; then
+        active=1
+    fi
+
+    if [[ $active -eq 1 ]]; then
+        local sched
+        sched=$(_geo_get_cron_schedule)
+        local readable
+        readable=$(_geo_cron_to_readable "$sched")
+        printf_description "Текущий статус: ${C_GREEN}ВКЛЮЧЕНО (${readable})${C_RESET}"
+        
+        echo -e "Выберите действие:"
+        local choice
+        choice=$(ask_selection "Управление автообновлением:" "Отключить автообновление" "Изменить расписание" "Назад") || return
+        case "$choice" in
+            1)
+                run_cmd rm -f "$cron_file" "$updater_script" 2>/dev/null || true
+                ok "Автоматическое обновление выключено."
+                ;;
+            2)
+                _geo_setup_cron_schedule
+                ;;
+            3)
+                return
+                ;;
+        esac
+    else
+        printf_description "Текущий статус: ${C_RED}ВЫКЛЮЧЕНО${C_RESET}"
+        if ask_yes_no "Включить автоматическое обновление?"; then
+            _geo_setup_cron_schedule
         fi
     fi
 }

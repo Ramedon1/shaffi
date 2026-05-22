@@ -8,6 +8,76 @@
 
 F2B_WHITELIST_FILE="/etc/reshala/fail2ban-whitelist.txt"
 
+_f2b_is_service_active() {
+    # Check via systemctl first
+    if systemctl is-active --quiet fail2ban &>/dev/null; then
+        return 0
+    fi
+    # Fallback to fail2ban-client ping
+    if command -v fail2ban-client &>/dev/null; then
+        local ping_res
+        ping_res=$(fail2ban-client ping 2>/dev/null)
+        if [[ "$ping_res" == *"Server replied: pong"* ]]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+_f2b_get_jail_var() {
+    local jail="$1"
+    local var="$2"
+    local file="/etc/fail2ban/jail.local"
+    [[ ! -f "$file" ]] && return 1
+    
+    local target_section="[${jail,,}]"
+    local target_var="${var,,}"
+    
+    awk -v sec="$target_section" -v var="$target_var" '
+    BEGIN { current_sec = "" }
+    /^[ \t]*\[[^\]]+\]/ {
+        # Extract section name and normalize
+        match($0, /\[[^\]]+\]/)
+        current_sec = tolower(substr($0, RSTART, RLENGTH))
+        # Remove all spaces inside section brackets for matching
+        gsub(/[ \t]/, "", current_sec)
+        next
+    }
+    current_sec == sec {
+        # Parse variable assignment
+        if ($0 ~ /^[ \t]*[a-zA-Z0-9_-]+[ \t]*=/) {
+            split($0, parts, "=")
+            vname = parts[1]
+            gsub(/^[ \t]+|[ \t]+$/, "", vname)
+            if (tolower(vname) == var) {
+                # Re-join parts if there were multiple "=" in the value
+                val = ""
+                for (i=2; i<=length(parts); i++) {
+                    if (i > 2) val = val "="
+                    val = val parts[i]
+                }
+                # Strip leading/trailing whitespace
+                gsub(/^[ \t]+|[ \t]+$/, "", val)
+                # Strip comments starting with # or ;
+                sub(/[ \t]*[#;].*$/, "", val)
+                gsub(/^[ \t]+|[ \t]+$/, "", val)
+                print val
+                exit
+            }
+        }
+    }
+    ' "$file"
+}
+
+_f2b_is_jail_enabled() {
+    local val
+    val=$(_f2b_get_jail_var "$1" "enabled")
+    if [[ "${val,,}" == "true" ]]; then
+        return 0
+    fi
+    return 1
+}
+
 
 show_fail2ban_menu() {
     while true; do
@@ -122,7 +192,7 @@ _f2b_check_status() {
         return 1
     fi
 
-    if systemctl is-active --quiet fail2ban; then
+    if _f2b_is_service_active; then
         local jails_list; jails_list=$(run_cmd fail2ban-client status 2>/dev/null | grep "Jail list:" | cut -d: -f2 | sed 's/,//g' | xargs)
         local jails_count=$(echo "$jails_list" | wc -w)
         
@@ -456,24 +526,19 @@ _f2b_extended_menu() {
 
         # Check statuses
         local sshd_status="(${C_RED}выкл${C_RESET})"
-        grep -A 2 "\[sshd\]" /etc/fail2ban/jail.local 2>/dev/null | grep -q "enabled\s*=\s*true" && \
-            sshd_status="(${C_GREEN}вкл${C_RESET})"
+        _f2b_is_jail_enabled "sshd" && sshd_status="(${C_GREEN}вкл${C_RESET})"
 
         local portscan_status="(${C_RED}выкл${C_RESET})"
-        grep -A 2 "\[portscan-reshala\]" /etc/fail2ban/jail.local 2>/dev/null | grep -q "enabled\s*=\s*true" && \
-            portscan_status="(${C_GREEN}вкл${C_RESET})"
+        _f2b_is_jail_enabled "portscan-reshala" && portscan_status="(${C_GREEN}вкл${C_RESET})"
         
         local nginx_auth_status="(${C_RED}выкл${C_RESET})"
-        grep -A 2 "\[nginx-auth-reshala\]" /etc/fail2ban/jail.local 2>/dev/null | grep -q "enabled\s*=\s*true" && \
-            nginx_auth_status="(${C_GREEN}вкл${C_RESET})"
+        _f2b_is_jail_enabled "nginx-auth-reshala" && nginx_auth_status="(${C_GREEN}вкл${C_RESET})"
         
         local nginx_bots_status="(${C_RED}выкл${C_RESET})"
-        grep -A 2 "\[nginx-bots-reshala\]" /etc/fail2ban/jail.local 2>/dev/null | grep -q "enabled\s*=\s*true" && \
-            nginx_bots_status="(${C_GREEN}вкл${C_RESET})"
+        _f2b_is_jail_enabled "nginx-bots-reshala" && nginx_bots_status="(${C_GREEN}вкл${C_RESET})"
 
         local nginx_scanners_status="(${C_RED}выкл${C_RESET})"
-        grep -A 2 "\[nginx-scanners-reshala\]" /etc/fail2ban/jail.local 2>/dev/null | grep -q "enabled\s*=\s*true" && \
-            nginx_scanners_status="(${C_GREEN}вкл${C_RESET})"
+        _f2b_is_jail_enabled "nginx-scanners-reshala" && nginx_scanners_status="(${C_GREEN}вкл${C_RESET})"
 
         echo ""
         printf_menu_option "0" "Защита SSH (стандартная) $sshd_status"
@@ -498,8 +563,7 @@ _f2b_extended_menu() {
             local idx=5
             for j in "${custom_jails[@]}"; do
                 local c_status="(${C_RED}выкл${C_RESET})"
-                grep -A 2 "\[$j\]" /etc/fail2ban/jail.local 2>/dev/null | grep -q "enabled\s*=\s*true" && \
-                    c_status="(${C_GREEN}вкл${C_RESET})"
+                _f2b_is_jail_enabled "$j" && c_status="(${C_GREEN}вкл${C_RESET})"
                 printf_menu_option "$idx" "${C_YELLOW}${j}${C_RESET} $c_status"
                 ((idx++))
             done
@@ -749,7 +813,7 @@ JAIL
     run_cmd systemctl enable fail2ban
     run_cmd systemctl restart fail2ban
     
-    if systemctl is-active --quiet fail2ban; then
+    if _f2b_is_service_active; then
         ok "Fail2Ban успешно настроен и запущен!"
         
         # Apply Telegram settings if enabled
@@ -1059,7 +1123,7 @@ _f2b_detect_syslog() {
 }
 
 _f2b_reload_or_start() {
-    if systemctl is-active --quiet fail2ban; then
+    if _f2b_is_service_active; then
         info "Перезагружаю конфигурацию Fail2Ban..."
         run_cmd systemctl reload fail2ban 2>/dev/null || run_cmd systemctl restart fail2ban
     else
@@ -1248,32 +1312,32 @@ _f2b_jail_submenu() {
 
         is_enabled="false"
 
-        if grep -q "^\s*\[$jail_name\]" /etc/fail2ban/jail.local 2>/dev/null; then
-            if grep -A 10 "^\s*\[$jail_name\]" /etc/fail2ban/jail.local 2>/dev/null | grep -q "enabled\s*=\s*true"; then
+        if [[ -f "/etc/fail2ban/jail.local" ]]; then
+            if _f2b_is_jail_enabled "$jail_name"; then
                 is_enabled="true"
             else
                 is_enabled="false"
             fi
             local extracted_log
-            extracted_log=$(grep -A 10 "^\s*\[$jail_name\]" /etc/fail2ban/jail.local 2>/dev/null | grep "^\s*logpath\s*=" | head -1 | awk -F'=' '{print $2}' | xargs)
+            extracted_log=$(_f2b_get_jail_var "$jail_name" "logpath")
             [[ -n "$extracted_log" ]] && current_log="$extracted_log"
 
             local extracted_backend
-            extracted_backend=$(grep -A 10 "^\s*\[$jail_name\]" /etc/fail2ban/jail.local 2>/dev/null | grep "^\s*backend\s*=" | head -1 | awk -F'=' '{print $2}' | xargs)
-            if [[ "$extracted_backend" == "systemd" ]]; then
+            extracted_backend=$(_f2b_get_jail_var "$jail_name" "backend")
+            if [[ "${extracted_backend,,}" == "systemd" ]]; then
                 current_log="systemd"
             fi
             
             local extracted_max
-            extracted_max=$(grep -A 10 "^\s*\[$jail_name\]" /etc/fail2ban/jail.local 2>/dev/null | grep "^\s*maxretry\s*=" | head -1 | awk -F'=' '{print $2}' | xargs)
+            extracted_max=$(_f2b_get_jail_var "$jail_name" "maxretry")
             [[ -n "$extracted_max" ]] && current_maxretry="$extracted_max"
 
             local extracted_p
-            extracted_p=$(grep -A 10 "^\s*\[$jail_name\]" /etc/fail2ban/jail.local 2>/dev/null | grep "^\s*port\s*=" | head -1 | awk -F'=' '{print $2}' | xargs)
+            extracted_p=$(_f2b_get_jail_var "$jail_name" "port")
             [[ -n "$extracted_p" ]] && current_p="$extracted_p"
 
             local extracted_a
-            extracted_a=$(grep -A 15 "^\s*\[$jail_name\]" /etc/fail2ban/jail.local 2>/dev/null | grep "^\s*action\s*=" | head -1 | awk -F'=' '{print $2}' | xargs)
+            extracted_a=$(_f2b_get_jail_var "$jail_name" "action")
             [[ -n "$extracted_a" ]] && current_a="$extracted_a"
         fi
 
@@ -1308,7 +1372,15 @@ _f2b_jail_submenu() {
         if [[ "$current_log" == "systemd" ]]; then
             printf_description "Файл лога: ${C_CYAN}systemd-journald (Systemd)${C_RESET}"
         else
-            printf_description "Файл лога: ${C_CYAN}$current_log${C_RESET}"
+            read -ra log_paths <<< "$current_log"
+            if [[ ${#log_paths[@]} -gt 1 ]]; then
+                printf_description "Файлы логов:"
+                for path in "${log_paths[@]}"; do
+                    printf "             • %b%b\n" "${C_CYAN}${path}${C_RESET}"
+                done
+            else
+                printf_description "Файл лога: ${C_CYAN}$current_log${C_RESET}"
+            fi
         fi
         
         printf_description "Попыток (maxretry): ${C_CYAN}$current_maxretry${C_RESET}"
