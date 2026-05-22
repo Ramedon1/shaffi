@@ -238,7 +238,7 @@ _f2b_get_jail_var() {
     local target_section="[${jail,,}]"
     local target_var="${var,,}"
     
-    awk -v sec="$target_section" -v var="$target_var" '
+    awk -v sec="$target_section" -v var="$target_var" -v sq="'" '
     BEGIN { current_sec = ""; found = 0; val = "" }
     /^[ \t]*\[[^\]]+\]/ {
         if (found) {
@@ -285,8 +285,13 @@ _f2b_get_jail_var() {
     END {
         if (found) {
             gsub(/\r/, "", val)
-            sub(/^['"]/, "", val)
-            sub(/['"]$/, "", val)
+            if (substr(val, 1, 1) == "\"" || substr(val, 1, 1) == sq) {
+                val = substr(val, 2)
+            }
+            len = length(val)
+            if (len > 0 && (substr(val, len, 1) == "\"" || substr(val, len, 1) == sq)) {
+                val = substr(val, 1, len - 1)
+            }
             print val
         }
     }
@@ -1276,10 +1281,7 @@ _f2b_detect_syslog() {
     local selected_flags=()
 
     # Удаляем кавычки из current_log
-    current_log="${current_log#\"}"
-    current_log="${current_log%\"}"
-    current_log="${current_log#\'}"
-    current_log="${current_log%\'}"
+    current_log=$(echo "$current_log" | tr -d '"' | tr -d "'")
 
     if [[ -f "/var/log/syslog" ]]; then found_logs+=("/var/log/syslog"); fi
     if [[ -f "/var/log/messages" ]]; then found_logs+=("/var/log/messages"); fi
@@ -1295,10 +1297,7 @@ _f2b_detect_syslog() {
     if [[ -n "$current_log" && "$current_log" != "Не задан" ]]; then
         for cl in $current_log; do
             # Удаляем внешние кавычки, если они есть
-            cl="${cl#\"}"
-            cl="${cl%\"}"
-            cl="${cl#\'}"
-            cl="${cl%\'}"
+            cl=$(echo "$cl" | tr -d '"' | tr -d "'")
             if [[ "$cl" == "/dev/null" || -z "$cl" ]]; then
                 continue
             fi
