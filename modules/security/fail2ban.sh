@@ -46,6 +46,7 @@ EOF
         ok "Файл $action_file успешно создан."
     fi
 
+    _f2b_sanitize_jail_local
     if [[ ! -f "/etc/fail2ban/jail.local" ]]; then
         return 0
     fi
@@ -173,6 +174,53 @@ if modified_content != original_content:
 PYEOF
 }
 
+_f2b_sanitize_jail_local() {
+    local file="/etc/fail2ban/jail.local"
+    [[ ! -f "$file" ]] && return 0
+    
+    run_cmd python3 - "$file" <<'PYEOF'
+import sys
+import os
+
+fpath = sys.argv[1]
+try:
+    with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.readlines()
+except Exception:
+    sys.exit(0)
+
+modified = False
+new_lines = []
+for line in lines:
+    stripped = line.strip()
+    if not stripped:
+        new_lines.append(line)
+        continue
+    # If line is a comment or section header, it's valid
+    if stripped.startswith('#') or stripped.startswith(';') or (stripped.startswith('[') and stripped.endswith(']')):
+        new_lines.append(line)
+        continue
+    # If it is a continuation line (starts with space or tab), it's valid if we already have an option
+    if line.startswith(' ') or line.startswith('\t'):
+        new_lines.append(line)
+        continue
+    # If it contains an '=', it's a valid option definition
+    if '=' in line:
+        new_lines.append(line)
+        continue
+    
+    # Otherwise, it's an invalid line! We skip it (remove it)
+    modified = True
+
+if modified:
+    try:
+        with open(fpath, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+    except Exception:
+        pass
+PYEOF
+}
+
 _f2b_get_jail_var() {
     local jail="$1"
     local var="$2"
@@ -186,7 +234,6 @@ _f2b_get_jail_var() {
     BEGIN { current_sec = ""; found = 0; val = "" }
     /^[ \t]*\[[^\]]+\]/ {
         if (found) {
-            print val
             exit
         }
         match($0, /\[[^\]]+\]/)
@@ -197,7 +244,6 @@ _f2b_get_jail_var() {
     current_sec == sec {
         if ($0 ~ /^[ \t]*[a-zA-Z0-9_-]+[ \t]*=/) {
             if (found) {
-                print val
                 exit
             }
             split($0, parts, "=")
@@ -224,13 +270,13 @@ _f2b_get_jail_var() {
                     val = val " " line_val
                 }
             } else {
-                print val
                 exit
             }
         }
     }
     END {
         if (found) {
+            gsub(/\r/, "", val)
             print val
         }
     }
@@ -248,6 +294,7 @@ _f2b_is_jail_enabled() {
 
 
 show_fail2ban_menu() {
+    _f2b_sanitize_jail_local
     while true; do
         clear
         enable_graceful_ctrlc
