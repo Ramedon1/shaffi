@@ -54,7 +54,7 @@ show_full_security_status() {
     print_section_title "Fail2Ban"
     if ! command -v fail2ban-client &> /dev/null; then
         print_key_value "Статус" "${C_YELLOW}Не установлен${C_RESET}" "$LABEL_WIDTH"
-    elif ! run_cmd systemctl is-active --quiet fail2ban 2>/dev/null; then
+    elif ! systemctl is-active --quiet fail2ban 2>/dev/null; then
         print_key_value "Статус" "${C_RED}Сервис не активен${C_RESET}" "$LABEL_WIDTH"
     else
         local banned
@@ -147,7 +147,7 @@ show_full_security_status_bot() {
     output+="*Fail2Ban*\n"
     if ! command -v fail2ban-client &> /dev/null; then
         output+="Статус: *Не установлен*\n\n"
-    elif ! run_cmd systemctl is-active --quiet fail2ban 2>/dev/null; then
+    elif ! systemctl is-active --quiet fail2ban 2>/dev/null; then
         output+="Статус: *Сервис не активен*\n\n"
     else
         local banned
