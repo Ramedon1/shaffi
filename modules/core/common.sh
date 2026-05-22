@@ -24,25 +24,16 @@ menu_header() {
     local width="${2:-60}"
     local color="${3:-${C_CYAN}}"
 
-    local visible_title_len=$(_get_visible_length "$title")
-    
-    # The effective width for the content between "║ " and "║"
-    local effective_content_width=$(( width - 2 )) # Subtracting 2 for " " and the right "║"
-    
-    local padding_needed=$(( effective_content_width - visible_title_len ))
-
-    if (( padding_needed < 0 )); then padding_needed=0; fi
-
-    printf "%b\n" "${color}╔$(printf '%.0s═' $(seq 1 "$width"))╗${C_RESET}"
-    printf "%b\n" "${color}║ ${title}$(printf '%*s' "$padding_needed" "")║${C_RESET}"
-    printf "%b\n" "${color}╚$(printf '%.0s═' $(seq 1 "$width"))╝${C_RESET}"
+    printf "%b\n" "${color}╔$(printf '%.0s═' $(seq 1 "$width"))${C_RESET}"
+    printf "%b\n" "${color}║ ${C_WHITE}${title}${C_RESET}"
+    printf "%b\n" "${color}╚$(printf '%.0s═' $(seq 1 "$width"))${C_RESET}"
 }
 
 # Универсальный футер для меню
 menu_footer() {
     local width="${1:-60}" # New: width argument, default to 60
     local color="${2:-${C_CYAN}}" # New: color argument, default to C_CYAN
-    printf "%b\n" "${color}╚$(printf '%.0s═' $(seq 1 "$width"))╝${C_RESET}"
+    printf "%b\n" "${color}╚$(printf '%.0s═' $(seq 1 "$width"))${C_RESET}"
 }
 
 # Выводит вертикальную линию (например, "║")
@@ -74,14 +65,16 @@ printf_description() {
     printf "          ↳ %b%b\n" "$*" "${C_RESET}"
 }
 
-# Вычисляет видимую длину строки, удаляя ANSI-коды.
-# Предполагается, что все видимые символы имеют ширину 1.
 _get_visible_length() {
     local s="$1"
-    # Удаляем ANSI escape-коды
-    local stripped_s; stripped_s=$(echo "$s" | sed 's/\x1b\[[0-9;]*m//g')
-    # Возвращаем видимую длину
-    echo "${#stripped_s}"
+    local esc=$'\e'
+    local clean
+    # Удаляем ANSI escape-коды (цвета и т.д.)
+    clean=$(printf "%b" "$s" | sed "s/${esc}\[[0-9;]*[A-Za-z]//g")
+    
+    # Считаем количество видимых UTF-8 символов путем удаления всех continuation-байтов (диапазон octal \200-\277).
+    # Это работает на 100% корректно в любой локали, включая стандартную C/POSIX, не требуя python3 или внешних утилит.
+    echo -n "$clean" | tr -d '\200-\277' | wc -c
 }
 
 # Универсальный разделитель

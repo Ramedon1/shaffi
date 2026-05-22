@@ -57,14 +57,14 @@ show_geoblock_menu() {
         enable_graceful_ctrlc
         menu_header "🌐 Geo-Block (Блокировка стран)"
         
-        echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════╗${C_RESET}"
+        echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════${C_RESET}"
         _geo_print_card_header "🌐 Geo-Block (Блокировка стран)"
-        echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════╣${C_RESET}"
+        echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════${C_RESET}"
         _geo_print_card_row "Что это:" "Блокировщик входящего трафика"
         _geo_print_card_row "Как работает:" "Скачивает IP-диапазоны стран"
         _geo_print_card_row "Технологии:" "Блокировка через ipset + UFW"
         _geo_print_card_row "Назначение:" "Отсекает нежелательный трафик"
-        echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════╝${C_RESET}"
+        echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════${C_RESET}"
         echo ""
 
         _geo_show_status
@@ -125,7 +125,7 @@ _geo_print_card_row() {
         spaces=$(printf '%*s' "$spaces_needed" "")
     fi
     
-    echo -e "  ${C_CYAN}║${C_RESET}  ${C_WHITE}${label}${C_RESET}${spaces}${value}  ${C_CYAN}║${C_RESET}"
+    echo -e "  ${C_CYAN}║${C_RESET}  ${C_WHITE}${label}${C_RESET}${spaces}${value}"
 }
 
 _geo_print_card_header() {
@@ -136,14 +136,11 @@ _geo_print_card_header() {
     
     local content_width=$((width - 4))
     local left_spaces=$(( (content_width - vis_title) / 2 ))
-    local right_spaces=$(( content_width - vis_title - left_spaces ))
     
     local left_pad=""
     if ((left_spaces > 0)); then left_pad=$(printf '%*s' "$left_spaces" ""); fi
-    local right_pad=""
-    if ((right_spaces > 0)); then right_pad=$(printf '%*s' "$right_spaces" ""); fi
     
-    echo -e "  ${C_CYAN}║${C_RESET}  ${left_pad}${C_WHITE}${title}${C_RESET}${right_pad}  ${C_CYAN}║${C_RESET}"
+    echo -e "  ${C_CYAN}║${C_RESET}  ${left_pad}${C_WHITE}${title}${C_RESET}"
 }
 
 _geo_show_status() {
@@ -168,7 +165,7 @@ _geo_show_status() {
                 code="${code^^}"
                 if [[ "$code" =~ ^[A-Z]{2}$ ]]; then
                     local name=""
-                    if [[ -v GEO_ALL_COUNTRIES[$code] ]]; then
+                    if [[ -n "${GEO_ALL_COUNTRIES[$code]:-}" ]]; then
                         name="${GEO_ALL_COUNTRIES[$code]}"
                     fi
                     names+=("${name:-$code}")
@@ -206,7 +203,7 @@ _geo_show_status() {
         autoupdate="${C_GREEN}Включено (еженедельно)${C_RESET}"
     fi
 
-    echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════╗${C_RESET}"
+    echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════${C_RESET}"
     if [[ $active -eq 1 ]]; then
         _geo_print_card_row "Состояние:" "${C_GREEN}● АКТИВЕН${C_RESET}"
         _geo_print_card_row "Заблокировано подсетей:" "${C_CYAN}${ip_count}${C_RESET}"
@@ -223,7 +220,7 @@ _geo_show_status() {
     fi
     _geo_print_card_row "Автозагрузка при загрузке ОС:" "$autostart"
     _geo_print_card_row "Автообновление базы:" "$autoupdate"
-    echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════╝${C_RESET}"
+    echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════${C_RESET}"
     print_separator
 }
 
@@ -237,21 +234,38 @@ _geo_format_column_item() {
     local idx_str
     idx_str=$(printf "%2d)" "$idx")
     
-    local text="${chk}  ${idx_str} ${C_CYAN}${code}${C_RESET} ${C_WHITE}${name}${C_RESET}"
-    local vis_len
-    vis_len=$(_get_visible_length "$text")
+    # Получаем реальную видимую длину имени страны (без ANSI-кодов, т.к. имя чистое)
+    local name_len
+    name_len=$(_get_visible_length "$name")
     
-    local spaces_needed=$((col_width - vis_len))
-    local spaces=""
-    if ((spaces_needed > 0)); then
-        spaces=$(printf '%*s' "$spaces_needed" "")
+    # Дополняем имя пробелами до 20 символов для фиксированного выравнивания
+    local pad_len=$(( 20 - name_len ))
+    local pad_spaces=""
+    if ((pad_len > 0)); then
+        pad_spaces=$(printf '%*s' "$pad_len" "")
     fi
-    echo -e "${text}${spaces}"
+    local name_padded="${name}${pad_spaces}"
+    
+    # Формируем итоговую строку со всеми цветами.
+    local text="${chk}  ${idx_str} ${C_CYAN}${code}${C_RESET} ${C_WHITE}${name_padded}${C_RESET}"
+    
+    if [[ "$col_width" -gt 0 ]]; then
+        # Динамически вычисляем видимую длину всей строки, включая чекбоксы и коды
+        local vis_len
+        vis_len=$(_get_visible_length "$text")
+        local extra_pad=$(( col_width - vis_len ))
+        if ((extra_pad > 0)); then
+            local extra_spaces
+            extra_spaces=$(printf '%*s' "$extra_pad" "")
+            text="${text}${extra_spaces}"
+        fi
+    fi
+    echo -e "$text"
 }
 
 _geo_manage_countries() {
     local sorted_codes=()
-    local temp_sorted
+    local temp_sorted=()
     mapfile -t temp_sorted < <(
         for code in "${!GEO_ALL_COUNTRIES[@]}"; do
             if [[ -n "$code" ]]; then
@@ -264,6 +278,7 @@ _geo_manage_countries() {
     done
 
     local -A selected_countries
+    selected_countries=([_DUMMY_]=1)
     if [[ -f "$GEO_COUNTRIES_FILE" ]]; then
         while IFS= read -r line || [[ -n "$line" ]]; do
             line="${line//[$'\r\n\t ']/}"
@@ -287,7 +302,7 @@ _geo_manage_countries() {
         local filtered_codes=()
         for code in "${sorted_codes[@]}"; do
             local name=""
-            if [[ "$code" =~ ^[A-Z]{2}$ && -v GEO_ALL_COUNTRIES[$code] ]]; then
+            if [[ "$code" =~ ^[A-Z]{2}$ && -n "${GEO_ALL_COUNTRIES[$code]:-}" ]]; then
                 name="${GEO_ALL_COUNTRIES[$code]}"
             else
                 name="?"
@@ -334,7 +349,7 @@ _geo_manage_countries() {
                 # Left Column
                 local left_code="${filtered_codes[$left_idx]}"
                 local left_name=""
-                if [[ "$left_code" =~ ^[A-Z]{2}$ && -v GEO_ALL_COUNTRIES[$left_code] ]]; then
+                if [[ "$left_code" =~ ^[A-Z]{2}$ && -n "${GEO_ALL_COUNTRIES[$left_code]:-}" ]]; then
                     left_name="${GEO_ALL_COUNTRIES[$left_code]}"
                 else
                     left_name="?"
@@ -345,14 +360,14 @@ _geo_manage_countries() {
                 fi
                 local left_display_idx=$((r + 1))
                 local left_str
-                left_str=$(_geo_format_column_item "$left_chk" "$left_display_idx" "$left_code" "$left_name" 36)
+                left_str=$(_geo_format_column_item "$left_chk" "$left_display_idx" "$left_code" "$left_name" 38)
                 
                 # Right Column
                 local right_str=""
                 if [[ $right_idx -le $page_end ]]; then
                     local right_code="${filtered_codes[$right_idx]}"
                     local right_name=""
-                    if [[ "$right_code" =~ ^[A-Z]{2}$ && -v GEO_ALL_COUNTRIES[$right_code] ]]; then
+                    if [[ "$right_code" =~ ^[A-Z]{2}$ && -n "${GEO_ALL_COUNTRIES[$right_code]:-}" ]]; then
                         right_name="${GEO_ALL_COUNTRIES[$right_code]}"
                     else
                         right_name="?"
@@ -375,6 +390,7 @@ _geo_manage_countries() {
 
         print_separator
         local total_selected=${#selected_countries[@]}
+        [[ -n "${selected_countries[_DUMMY_]:-}" ]] && total_selected=$((total_selected - 1))
         printf_description "Выбрано стран: ${C_YELLOW}${total_selected}${C_RESET} | Страница: ${C_CYAN}$((current_page+1))${C_RESET} из ${C_CYAN}${total_pages}${C_RESET} (Всего найдено: ${C_YELLOW}${total_items}${C_RESET})"
         if [[ -n "$search_query" ]]; then
             printf_description "Активный фильтр: ${C_GREEN}${search_query}${C_RESET} (введите ${C_YELLOW}c${C_RESET} для сброса)"
@@ -425,11 +441,19 @@ _geo_manage_countries() {
                     # Save selected countries back to file
                     run_cmd mkdir -p "$GEO_CONFIG_DIR"
                     > "$GEO_COUNTRIES_FILE"
+                    local actual_selected=0
                     for code in "${!selected_countries[@]}"; do
-                        if [[ -n "$code" ]]; then
-                            echo "$code" >> "$GEO_COUNTRIES_FILE"
+                        if [[ -n "$code" && "$code" != "_DUMMY_" ]]; then
+                            actual_selected=$((actual_selected + 1))
                         fi
                     done
+                    if [[ $actual_selected -gt 0 ]]; then
+                        for code in "${!selected_countries[@]}"; do
+                            if [[ -n "$code" && "$code" != "_DUMMY_" ]]; then
+                                echo "$code" >> "$GEO_COUNTRIES_FILE"
+                            fi
+                        done
+                    fi
                     ok "Список стран успешно сохранен!"
                     wait_for_enter
                     break
@@ -466,7 +490,7 @@ _geo_manage_countries() {
                     ;;
                 clear)
                     if ask_yes_no "Сбросить текущий выбор полностью?"; then
-                        selected_countries=()
+                        selected_countries=([_DUMMY_]=1)
                         ok "Выбор полностью сброшен."
                         sleep 0.5
                     fi
@@ -564,7 +588,7 @@ _geo_manage_countries() {
                     if [[ "$idx" -ge 1 && "$target_idx" -le $page_end ]]; then
                         local code="${filtered_codes[$target_idx]}"
                         local country_name=""
-                        if [[ "$code" =~ ^[A-Z]{2}$ && -v GEO_ALL_COUNTRIES[$code] ]]; then
+                        if [[ "$code" =~ ^[A-Z]{2}$ && -n "${GEO_ALL_COUNTRIES[$code]:-}" ]]; then
                             country_name="${GEO_ALL_COUNTRIES[$code]}"
                         else
                             country_name="?"
@@ -582,7 +606,7 @@ _geo_manage_countries() {
                     fi
                 elif [[ "$token" =~ ^[a-zA-Z]{2}$ ]]; then
                     local code="${token^^}"
-                    if [[ "$code" =~ ^[A-Z]{2}$ && -v GEO_ALL_COUNTRIES[$code] ]]; then
+                    if [[ "$code" =~ ^[A-Z]{2}$ && -n "${GEO_ALL_COUNTRIES[$code]:-}" ]]; then
                         local country_name="${GEO_ALL_COUNTRIES[$code]}"
                         if [[ -n "${selected_countries[$code]:-}" ]]; then
                             unset "selected_countries[$code]"
@@ -703,6 +727,7 @@ _geo_activate() {
     local max_parallel=16
     local pids=()
     local -A country_map
+    country_map=()
     local completed=0
     local subnets_total=0
     local skipped_countries=()
@@ -739,7 +764,7 @@ _geo_activate() {
             else
                 local country="${country_map[$pid]}"
                 local country_name="?"
-                if [[ "$country" =~ ^[A-Z]{2}$ && -v GEO_ALL_COUNTRIES[$country] ]]; then
+                if [[ "$country" =~ ^[A-Z]{2}$ && -n "${GEO_ALL_COUNTRIES[$country]:-}" ]]; then
                     country_name="${GEO_ALL_COUNTRIES[$country]}"
                 else
                     country_name="$country"
@@ -881,6 +906,7 @@ _geo_activate() {
 
     # Удаляем дубликаты и валидируем форматы (поддерживается только IPv4 в hash:net)
     local -A seen_wl_ips
+    seen_wl_ips=()
     local unique_wl_ips=()
     for ip in "${wl_ips[@]}"; do
         ip="${ip//[$'\r\n\t ']/}"
@@ -1145,13 +1171,13 @@ _geo_show_stats() {
         dropped=$(iptables -L ufw-before-input -v -n 2>/dev/null | grep "$GEO_IPSET_NAME" | awk '{print $1}')
     fi
 
-    echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════╗${C_RESET}"
+    echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════${C_RESET}"
     _geo_print_card_header "📊 ТЕКУЩИЕ ПОКАЗАТЕЛИ БЛОКИРОВКИ"
-    echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════╣${C_RESET}"
+    echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════${C_RESET}"
     _geo_print_card_row "Активная база подсетей (ipset):" "${C_CYAN}${total}${C_RESET}"
     _geo_print_card_row "Заблокировано целевых стран:" "${C_YELLOW}${countries_count}${C_RESET}"
     _geo_print_card_row "Отсечено пакетов (iptables/UFW):" "${C_RED}${dropped:-0}${C_RESET}"
-    echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════╝${C_RESET}"
+    echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════${C_RESET}"
     echo ""
 }
 
@@ -1196,7 +1222,7 @@ _geo_test_ip() {
 
     local country_name="Неизвестно"
     if [[ -n "$country_code" ]]; then
-        if [[ -v GEO_ALL_COUNTRIES[$country_code] ]]; then
+        if [[ -n "${GEO_ALL_COUNTRIES[$country_code]:-}" ]]; then
             country_name="${GEO_ALL_COUNTRIES[$country_code]}"
         else
             country_name="Код $country_code"
@@ -1233,15 +1259,15 @@ _geo_test_ip() {
         fi
     fi
 
-    echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════╗${C_RESET}"
+    echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════${C_RESET}"
     _geo_print_card_header "🔬 РЕЗУЛЬТАТ ДИАГНОСТИКИ IP"
-    echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════╣${C_RESET}"
+    echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════${C_RESET}"
     _geo_print_card_row "IP-адрес:" "${C_WHITE}${ip}${C_RESET}"
     _geo_print_card_row "Определенная страна:" "${C_YELLOW}${country_name} (${country_code:-?})${C_RESET}"
     _geo_print_card_row "В белом списке:" "$in_whitelist"
     _geo_print_card_row "В базе блокировок:" "$in_geoblock"
     _geo_print_card_row "Итоговый статус:" "$status"
-    echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════╝${C_RESET}"
+    echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════${C_RESET}"
     echo ""
 }
 

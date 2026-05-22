@@ -14,14 +14,14 @@ show_kernel_menu() {
         enable_graceful_ctrlc
         menu_header "🧠 Kernel Hardening"
         
-        echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════╗${C_RESET}"
+        echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════${C_RESET}"
         echo -e "  ${C_CYAN}║${C_RESET}  ${C_YELLOW}🧠 Kernel Hardening${C_RESET}"
-        echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════╣${C_RESET}"
+        echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════${C_RESET}"
         echo -e "  ${C_CYAN}║${C_RESET}  ${C_WHITE}Что это:${C_RESET} Глубокая настройка параметров ядра Linux."
         echo -e "  ${C_CYAN}║${C_RESET}  ${C_WHITE}Как работает:${C_RESET} Защищает от TCP SYN Flood атак, спуфинга,"
         echo -e "  ${C_CYAN}║${C_RESET}  ICMP-атак и оптимизирует сеть, сохраняя совместимость с VPN."
         echo -e "  ${C_CYAN}║${C_RESET}  ${C_YELLOW}⚠️  WARP/WireGuard совместимость:${C_RESET} src_valid_mark включён."
-        echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════╝${C_RESET}"
+        echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════${C_RESET}"
         echo ""
 
         _kernel_check_status

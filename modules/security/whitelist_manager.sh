@@ -272,12 +272,12 @@ global_whitelist_offer() {
     fi
 
     echo ""
-    echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════╗${C_RESET}"
+    echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════${C_RESET}"
     echo -e "  ${C_CYAN}║${C_RESET}  ${C_YELLOW}🌍 Обнаружен Глобальный Белый Список (${count} IP)${C_RESET}"
-    echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════╣${C_RESET}"
+    echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════${C_RESET}"
     echo -e "  ${C_CYAN}║${C_RESET}  Этот единый список автоматически применяется ко всем"
     echo -e "  ${C_CYAN}║${C_RESET}  модулям защиты (Шейпер, Fail2Ban, UFW, Geo-Block)."
-    echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════╣${C_RESET}"
+    echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════${C_RESET}"
     echo -e "  ${C_CYAN}║${C_RESET}  ${C_WHITE}Текущие IP:${C_RESET}"
 
     local ips
@@ -286,7 +286,7 @@ global_whitelist_offer() {
         echo -e "  ${C_CYAN}║${C_RESET}    ${C_GREEN}●${C_RESET} ${ip}"
     done
 
-    echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════╝${C_RESET}"
+    echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════${C_RESET}"
     echo ""
 
     if ask_yes_no "Использовать Глобальный Белый Список для модуля '${module_name}'?" "y"; then
@@ -479,14 +479,14 @@ show_global_whitelist_menu() {
         enable_graceful_ctrlc
         menu_header "🌍 Глобальный Белый Список"
         
-        echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════╗${C_RESET}"
+        echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════${C_RESET}"
         echo -e "  ${C_CYAN}║${C_RESET}  ${C_YELLOW}🌍 Глобальный Белый Список${C_RESET}"
-        echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════╣${C_RESET}"
+        echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════${C_RESET}"
         echo -e "  ${C_CYAN}║${C_RESET}  ${C_WHITE}Что это:${C_RESET} Единый список доверенных IP-адресов."
         echo -e "  ${C_CYAN}║${C_RESET}  ${C_WHITE}Как работает:${C_RESET} IP добавляются в исключения (bypass) для"
         echo -e "  ${C_CYAN}║${C_RESET}  всех подсистем защиты: eBPF Шейпера, Fail2Ban, Anti-DDoS,"
         echo -e "  ${C_CYAN}║${C_RESET}  UFW и Geo-Block."
-        echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════╝${C_RESET}"
+        echo -e "  ${C_CYAN}╚══════════════════════════════════════════════════════════${C_RESET}"
         echo ""
 
         print_separator
