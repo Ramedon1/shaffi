@@ -838,7 +838,17 @@ _vgw_find_nginx_conf_dir() {
 # Аргументы: public_domain gateway_port ssl_cert_path ssl_key_path [csrc]
 # csrc используется для выбора правильных путей к сертификатам в конфиге
 _vgw_nginx_generate_conf() {
-    local domain="$1" gw_port="$2" cert="${3:-}" key="${4:-}" csrc="${5:-}"
+    local domain="$1" gw_port="$2" cert="${3:-}" key="${4:-}" csrc="${5:-}" cname="${6:-}"
+    
+    # Определяем IP хоста для проксирования из контейнера
+    local upstream_host="127.0.0.1"
+    if [[ -n "$cname" ]] && command -v docker &>/dev/null; then
+        local gw_ip
+        gw_ip=$(docker inspect "$cname" --format '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' 2>/dev/null | head -n1)
+        if [[ -n "$gw_ip" ]]; then
+            upstream_host="$gw_ip"
+        fi
+    fi
     local ssl_block
     if [[ -n "$cert" ]]; then
         ssl_block="    ssl_certificate     ${cert};"$'\n'"    ssl_certificate_key ${key};"
@@ -853,7 +863,7 @@ _vgw_nginx_generate_conf() {
 # ================================================================
 # BEDOLAGA LANDING GATEWAY — proxy_pass конфиг
 # Домен:     ${domain}
-# Gateway:   127.0.0.1:${gw_port}
+# Gateway:   ${upstream_host}:${gw_port}
 # Создан:    $(date '+%Y-%m-%d %H:%M:%S')
 # ================================================================
 
@@ -881,7 +891,7 @@ ${ssl_block}
     ssl_session_timeout 10m;
 
     location / {
-        proxy_pass https://127.0.0.1:${gw_port};
+        proxy_pass https://${upstream_host}:${gw_port};
         proxy_http_version 1.1;
         proxy_ssl_verify off;
         proxy_set_header Host \$host;
@@ -1041,11 +1051,15 @@ _vgw_resolve_ssl_paths() {
             # csrc_cont содержит путь внутри контейнера, например:
             #   /etc/nginx/ssl/donmatteo.monster   → домен: donmatteo.monster
             #   /etc/nginx/ssl/lendinghello.mooo.com → домен: lendinghello.mooo.com
-            local cw_domain
+            #
+            # Также поддерживаем Wildcard-сертификаты (например, если certwarden для домена donmatteo.monster,
+            # а public_domain это lendinghello.donmatteo.monster — он подходит!).
+            local cw_domain cw_clean
             cw_domain=$(basename "$csrc_cont")
+            cw_clean="${cw_domain#\*.}" # Срезаем leading *. если есть
 
-            if [[ -n "$public_domain" && "$cw_domain" == "$public_domain" ]]; then
-                # ✅ certwarden обслуживает именно наш домен — используем напрямую
+            if [[ -n "$public_domain" ]] && [[ "$cw_clean" == "$public_domain" || "$public_domain" == *".${cw_clean}" ]]; then
+                # ✅ certwarden обслуживает наш домен или является его Wildcard-родителем — используем напрямую
                 CERT="${csrc_cont}/fullchain.pem"
                 KEY="${csrc_cont}/privkey.pem"
                 VOLUME_NEEDED="0"
@@ -1364,7 +1378,7 @@ _vgw_nginx_inject_auto() {
 
             # ── Шаг 2: Создаём конфиг nginx ─────────────────────
             info "Создаю ${conf_host}..."
-            _vgw_nginx_generate_conf "$domain" "$gport" "$CERT" "$KEY" "$csrc" > "$conf_host" || {
+            _vgw_nginx_generate_conf "$domain" "$gport" "$CERT" "$KEY" "$csrc" "$cname" > "$conf_host" || {
                 printf_error "Не удалось создать ${conf_host}"; return 1
             }
 
@@ -1397,7 +1411,7 @@ _vgw_nginx_inject_auto() {
 
             # ── Шаг 2: Инжект конфига через docker cp ───────────
             local tmp_conf="/tmp/_bedolaga_${domain}.conf"
-            _vgw_nginx_generate_conf "$domain" "$gport" "$CERT" "$KEY" "$csrc" > "$tmp_conf"
+            _vgw_nginx_generate_conf "$domain" "$gport" "$CERT" "$KEY" "$csrc" "$cname" > "$tmp_conf"
             docker cp "$tmp_conf" "${cname}:/etc/nginx/conf.d/80-bedolaga.conf" || return 1
             rm -f "$tmp_conf"
             docker exec "$cname" nginx -t && docker exec "$cname" nginx -s reload || return 1
@@ -1453,7 +1467,7 @@ _vgw_nginx_manual_guide() {
     fi
 
     local conf_content
-    conf_content=$(_vgw_nginx_generate_conf "$domain" "$gport" "$cert" "$key" "$csrc")
+    conf_content=$(_vgw_nginx_generate_conf "$domain" "$gport" "$cert" "$key" "$csrc" "$cname")
 
     local is_fallback="0"
     local fallback_cfg=""
