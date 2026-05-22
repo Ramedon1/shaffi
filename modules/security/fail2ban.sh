@@ -26,6 +26,26 @@ _f2b_is_service_active() {
 }
 
 _f2b_ensure_jail_logs_exist() {
+    # Создаем ufw action, если он отсутствует
+    local action_file="/etc/fail2ban/action.d/ufw.conf"
+    if [[ ! -f "$action_file" ]]; then
+        info "Создаю файл действия Fail2Ban UFW: $action_file..."
+        run_cmd mkdir -p "/etc/fail2ban/action.d"
+        run_cmd tee "$action_file" > /dev/null <<'EOF'
+[Definition]
+actionstart =
+actionstop =
+actioncheck =
+actionban = [ "<port>" = "any" ] && ufw insert 1 deny from <ip> || ufw insert 1 deny from <ip> to any port <port> proto <protocol>
+actionunban = [ "<port>" = "any" ] && ufw delete deny from <ip> || ufw delete deny from <ip> to any port <port> proto <protocol>
+
+[Init]
+port = any
+protocol = tcp
+EOF
+        ok "Файл $action_file успешно создан."
+    fi
+
     if [[ ! -f "/etc/fail2ban/jail.local" ]]; then
         return 0
     fi
@@ -36,7 +56,6 @@ import configparser
 import os
 import re
 import sys
-import shutil
 
 fpath = "/etc/fail2ban/jail.local"
 if not os.path.exists(fpath):
@@ -49,9 +68,6 @@ except Exception as e:
     sys.stderr.write(f"Ошибка чтения jail.local: {e}\n")
     sys.exit(0)
 
-nginx_present = shutil.which("nginx") is not None
-nginx_jail_patterns = ["nginx", "bots", "scanners"]
-
 with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
     original_content = f.read()
 
@@ -63,53 +79,89 @@ for section in config.sections():
         if not is_enabled:
             continue
 
-        section_lower = section.lower()
-        is_nginx_jail = any(pat in section_lower for pat in nginx_jail_patterns)
+        # Проверяем backend и logpath
+        backend_val = config.get(section, 'backend') if config.has_option(section, 'backend') else 'auto'
+        is_systemd = backend_val.lower() == 'systemd'
 
-        if config.has_option(section, 'logpath'):
-            logpath_val = config.get(section, 'logpath')
-            if logpath_val:
-                paths = re.split(r'\s+', logpath_val.strip())
-                all_missing = True
-                for path in paths:
-                    if not path or '*' in path or '?' in path or path == 'systemd':
-                        all_missing = False
-                        continue
-                    if path.startswith('/'):
-                        dir_path = os.path.dirname(path)
+        # Если jail не использует systemd backend, валидируем его лог-файлы
+        if not is_systemd:
+            logpath_val = config.get(section, 'logpath') if config.has_option(section, 'logpath') else None
+            if not logpath_val or not logpath_val.strip():
+                # У джейла нет logpath! Отключаем джейл для безопасности
+                sys.stdout.write(f"[AUTO-DISABLE] Jail [{section}]: нет logpath. Отключаю jail.\n")
+                section_pattern = re.compile(
+                    rf'^(\[{re.escape(section)}\].*?)(?=^\[|\Z)',
+                    re.MULTILINE | re.DOTALL
+                )
+                def disable_jail_section(m):
+                    block = m.group(0)
+                    block = re.sub(r'^(\s*enabled\s*=\s*)true', r'\g<1>false', block, flags=re.MULTILINE | re.IGNORECASE)
+                    if not re.search(r'^\s*enabled\s*=', block, re.MULTILINE | re.IGNORECASE):
+                        block = block.replace(f'[{section}]\n', f'[{section}]\nenabled = false\n', 1)
+                    return block
+                modified_content = section_pattern.sub(disable_jail_section, modified_content)
+                continue
+
+            paths = [p.strip() for p in re.split(r'\s+', logpath_val.strip()) if p.strip()]
+            valid_paths = []
+            for path in paths:
+                if not path:
+                    continue
+                if '%' in path or not path.startswith('/'):
+                    valid_paths.append(path)
+                    continue
+                if '*' in path or '?' in path or path == 'systemd' or path == '/dev/null':
+                    dir_path = os.path.dirname(path)
+                    if dir_path and '*' not in dir_path and '?' not in dir_path:
                         if not os.path.exists(dir_path):
                             try:
                                 os.makedirs(dir_path, exist_ok=True)
                                 os.chmod(dir_path, 0o755)
                             except Exception:
                                 pass
-                        if not os.path.exists(path):
-                            # Для nginx-jails без nginx — отключаем jail вместо создания заглушки
-                            if is_nginx_jail and not nginx_present:
-                                sys.stdout.write(f"[AUTO-DISABLE] Jail [{section}]: nginx не установлен, файл '{path}' отсутствует. Отключаю jail.\n")
-                                # Отключаем jail в файле
-                                section_pattern = re.compile(
-                                    rf'^(\[{re.escape(section)}\].*?)(?=^\[|\Z)',
-                                    re.MULTILINE | re.DOTALL
-                                )
-                                def disable_jail(m):
-                                    block = m.group(0)
-                                    block = re.sub(r'^(\s*enabled\s*=\s*)true', r'\g<1>false', block, flags=re.MULTILINE | re.IGNORECASE)
-                                    if not re.search(r'^\s*enabled\s*=', block, re.MULTILINE | re.IGNORECASE):
-                                        block = block.replace(f'[{section}]\n', f'[{section}]\nenabled = false\n', 1)
-                                    return block
-                                modified_content = section_pattern.sub(disable_jail, modified_content)
-                            else:
-                                try:
-                                    with open(path, 'a'):
-                                        pass
-                                    os.chmod(path, 0o666)
-                                    sys.stdout.write(f"Создан лог-заглушка: {path}\n")
-                                    all_missing = False
-                                except Exception as e2:
-                                    sys.stderr.write(f"Ошибка создания файла '{path}': {e2}\n")
-                        else:
-                            all_missing = False
+                    valid_paths.append(path)
+                    continue
+
+                dir_path = os.path.dirname(path)
+                if not os.path.exists(dir_path):
+                    try:
+                        os.makedirs(dir_path, exist_ok=True)
+                        os.chmod(dir_path, 0o755)
+                    except Exception:
+                        pass
+
+                if not os.path.exists(path):
+                    try:
+                        with open(path, 'a'):
+                            pass
+                        os.chmod(path, 0o666)
+                        sys.stdout.write(f"Создан лог-заглушка: {path}\n")
+                        valid_paths.append(path)
+                    except Exception as e2:
+                        sys.stderr.write(f"Ошибка создания файла '{path}': {e2}\n")
+                else:
+                    valid_paths.append(path)
+
+            section_pattern = re.compile(
+                rf'^(\[{re.escape(section)}\].*?)(?=^\[|\Z)',
+                re.MULTILINE | re.DOTALL
+            )
+
+            def update_jail_section(m):
+                block = m.group(0)
+                if not valid_paths:
+                    sys.stdout.write(f"[AUTO-DISABLE] Jail [{section}]: нет доступных лог-файлов. Отключаю jail.\n")
+                    block = re.sub(r'^(\s*enabled\s*=\s*)true', r'\g<1>false', block, flags=re.MULTILINE | re.IGNORECASE)
+                    if not re.search(r'^\s*enabled\s*=', block, re.MULTILINE | re.IGNORECASE):
+                        block = block.replace(f'[{section}]\n', f'[{section}]\nenabled = false\n', 1)
+                else:
+                    formatted_logpath = "\n          ".join(valid_paths)
+                    logpath_pattern = re.compile(r'^(\s*logpath\s*=\s*).*?$(?:\n[ \t]+.*?$)*', re.MULTILINE | re.IGNORECASE)
+                    if logpath_pattern.search(block):
+                        block = logpath_pattern.sub(lambda match: match.group(1) + formatted_logpath, block)
+                return block
+
+            modified_content = section_pattern.sub(update_jail_section, modified_content)
 
     except Exception as e:
         sys.stderr.write(f"Ошибка обработки секции [{section}]: {e}\n")
@@ -117,7 +169,7 @@ for section in config.sections():
 if modified_content != original_content:
     with open(fpath, "w", encoding="utf-8") as f:
         f.write(modified_content)
-    sys.stdout.write("jail.local обновлен (отключены недоступные jails).\n")
+    sys.stdout.write("jail.local обновлен (очищены недоступные пути логов / отключены jails).\n")
 PYEOF
 }
 
@@ -131,36 +183,55 @@ _f2b_get_jail_var() {
     local target_var="${var,,}"
     
     awk -v sec="$target_section" -v var="$target_var" '
-    BEGIN { current_sec = "" }
+    BEGIN { current_sec = ""; found = 0; val = "" }
     /^[ \t]*\[[^\]]+\]/ {
-        # Extract section name and normalize
+        if (found) {
+            print val
+            exit
+        }
         match($0, /\[[^\]]+\]/)
         current_sec = tolower(substr($0, RSTART, RLENGTH))
-        # Remove all spaces inside section brackets for matching
         gsub(/[ \t]/, "", current_sec)
         next
     }
     current_sec == sec {
-        # Parse variable assignment
         if ($0 ~ /^[ \t]*[a-zA-Z0-9_-]+[ \t]*=/) {
+            if (found) {
+                print val
+                exit
+            }
             split($0, parts, "=")
             vname = parts[1]
             gsub(/^[ \t]+|[ \t]+$/, "", vname)
             if (tolower(vname) == var) {
-                # Re-join parts if there were multiple "=" in the value
+                found = 1
                 val = ""
                 for (i=2; i<=length(parts); i++) {
                     if (i > 2) val = val "="
                     val = val parts[i]
                 }
-                # Strip leading/trailing whitespace
                 gsub(/^[ \t]+|[ \t]+$/, "", val)
-                # Strip comments starting with # or ;
                 sub(/[ \t]*[#;].*$/, "", val)
                 gsub(/^[ \t]+|[ \t]+$/, "", val)
+            }
+        } else if (found) {
+            if ($0 ~ /^[ \t]+[^ \t#;]/) {
+                line_val = $0
+                gsub(/^[ \t]+|[ \t]+$/, "", line_val)
+                sub(/[ \t]*[#;].*$/, "", line_val)
+                gsub(/^[ \t]+|[ \t]+$/, "", line_val)
+                if (line_val != "") {
+                    val = val " " line_val
+                }
+            } else {
                 print val
                 exit
             }
+        }
+    }
+    END {
+        if (found) {
+            print val
         }
     }
     ' "$file"
@@ -350,21 +421,26 @@ _f2b_show_banned() {
     fi
 
     local -A banned_ips
+    local -a banned_keys=()
+    local banned_count=0
     for jail in $jails_list; do
         local jail_banned
         jail_banned=$(run_cmd fail2ban-client status "$jail" 2>/dev/null | grep "Banned IP list" | cut -d: -f2)
         for ip in $jail_banned; do
-            if [[ -n "${banned_ips[$ip]}" ]]; then
+            [[ -z "$ip" ]] && continue
+            if [[ -n "${banned_ips[$ip]:-}" ]]; then
                 banned_ips[$ip]+=", $jail"
             else
                 banned_ips[$ip]="$jail"
+                banned_keys+=("$ip")
+                ((banned_count++))
             fi
         done
     done
 
-    if [[ ${#banned_ips[@]} -gt 0 ]]; then
-        for ip in "${!banned_ips[@]}"; do
-            local jails="${banned_ips[$ip]}"
+    if [[ $banned_count -gt 0 ]]; then
+        for ip in "${banned_keys[@]}"; do
+            local jails="${banned_ips[$ip]:-}"
             if [[ "$jails" == *","* ]]; then
                 printf_description "● $ip ${C_RED}[Забанен в нескольких списках: $jails]${C_RESET}"
             else
@@ -1272,22 +1348,33 @@ _f2b_reload_or_start() {
         info "Перезагружаю конфигурацию Fail2Ban..."
         if ! run_cmd systemctl reload fail2ban 2>/dev/null; then
             warn "reload не удался, пробую restart..."
-            run_cmd systemctl restart fail2ban
+            if run_cmd systemctl restart fail2ban; then
+                sleep 2
+                if _f2b_is_service_active; then
+                    ok "Сервис успешно перезапущен и работает."
+                else
+                    err "Fail2Ban перезапустился, но тут же упал!"
+                    err "Проверьте: journalctl -xeu fail2ban --no-pager | tail -30"
+                fi
+            else
+                err "Не удалось перезапустить Fail2Ban."
+                err "Проверьте: journalctl -xeu fail2ban --no-pager | tail -30"
+            fi
         fi
     else
         info "Сервис Fail2Ban не активен. Проверяю конфигурацию..."
         if _f2b_validate_config; then
             if run_cmd systemctl start fail2ban; then
-                sleep 1
+                sleep 2
                 if _f2b_is_service_active; then
                     ok "Сервис Fail2Ban успешно запущен!"
                 else
                     err "Fail2Ban запустился, но тут же упал!"
-                    err "Проверьте: journalctl -xeu fail2ban --no-pager | tail -20"
+                    err "Проверьте: journalctl -xeu fail2ban --no-pager | tail -30"
                 fi
             else
                 err "Не удалось запустить Fail2Ban."
-                err "Проверьте: journalctl -xeu fail2ban --no-pager | tail -20"
+                err "Проверьте: journalctl -xeu fail2ban --no-pager | tail -30"
             fi
         else
             err "Конфигурация содержит ошибки — запуск отменён!"
@@ -1458,6 +1545,12 @@ jail = sys.argv[1]
 option = sys.argv[2]
 value = sys.argv[3]
 
+# Format logpath if it contains space-separated paths
+if option == "logpath" and value and not value.startswith("systemd") and not value.startswith("/dev/null"):
+    paths = [p.strip() for p in re.split(r'\s+', value.strip()) if p.strip()]
+    if len(paths) > 1:
+        value = "\n          ".join(paths)
+
 if not os.path.exists(fpath):
     os.makedirs(os.path.dirname(fpath), exist_ok=True)
     with open(fpath, "w", encoding="utf-8") as f:
@@ -1502,6 +1595,16 @@ else:
             break
 
     if option_idx != -1:
+        # Find and delete all continuation lines (lines starting with space/tab)
+        next_idx = option_idx + 1
+        while next_idx < next_section_start:
+            orig_line = lines[next_idx]
+            if orig_line.startswith(' ') or orig_line.startswith('\t'):
+                del lines[next_idx]
+                next_section_start -= 1
+            else:
+                break
+
         if value:
             lines[option_idx] = f"{option} = {value}\n"
         else:
