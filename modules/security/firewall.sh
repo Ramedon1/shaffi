@@ -54,7 +54,7 @@ show_firewall_menu() {
             printf_menu_option "s" "Показать статус UFW (systemd)"
             printf_menu_option "e" "Включить UFW"
             printf_menu_option "d" "Выключить UFW"
-            printf_menu_option "r" "Сбросить все правила ${C_RED}(ОПАСНО)${C_RESET}"
+            printf_menu_option "r" "Полная переустановка UFW ${C_RED}(ОПАСНО)${C_RESET}"
         fi
         echo ""
         printf_menu_option "b" "Назад"
@@ -122,15 +122,8 @@ show_firewall_menu() {
                 fi
                 ;;
             r|R)
-                if ! command -v ufw &> /dev/null; then
-                    err "UFW не установлен."
-                else
-                    printf "%b" "${C_RED}Сбросить ВСE правила UFW? Это действие необратимо.${C_RESET}"
-                    if ask_yes_no " "; then
-                        warn "Сбрасываю UFW..."
-                        echo "y" | run_cmd ufw --force reset
-                    fi
-                fi
+                _firewall_reinstall
+                wait_for_enter
                 ;;
 
             b | B) 
@@ -667,14 +660,12 @@ docker_block = f"""
 {marker_s}
 # Эти правила заставляют Docker-трафик проходить через фильтрацию UFW.
 # Теперь команды типа 'ufw route allow/deny' будут корректно работать для контейнеров.
-*filter
 :DOCKER-USER - [0:0]
 -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
 -A DOCKER-USER -i {iface} -p udp -m udp --sport 53 --dport 1024:65535 -j RETURN
 -A DOCKER-USER -i {iface} -j ufw-user-forward
 -A DOCKER-USER -i {iface} -j DROP
 -A DOCKER-USER -j RETURN
-COMMIT
 {marker_e}
 """
 
@@ -809,4 +800,23 @@ _firewall_install_ufw() {
     else
         err "Не удалось установить UFW. Проверьте интернет-соединение или репозитории."
     fi
+}
+
+_firewall_reinstall() {
+    print_separator
+    warn "ПОЛНАЯ ПЕРЕУСТАНОВКА FIREWALL (UFW)"
+    print_separator
+    echo -e "  ${C_RED}ВНИМАНИЕ! Это удалит текущие конфигурации и сбросит все порты.${C_RESET}"
+    echo -e "  ${C_RED}Все ваши пользовательские правила будут безвозвратно удалены!${C_RESET}"
+    if ! ask_yes_no "Продолжить полную очистку и переустановку?"; then
+        return
+    fi
+    info "Сбрасываем UFW..."
+    echo "y" | run_cmd ufw --force reset 2>/dev/null || true
+    info "Удаляем UFW и конфиги..."
+    run_cmd apt purge -y ufw || true
+    run_cmd apt autoremove -y || true
+    run_cmd rm -rf /etc/ufw
+    info "Устанавливаем UFW заново..."
+    _firewall_install_ufw
 }

@@ -10,14 +10,15 @@ F2B_WHITELIST_FILE="/etc/reshala/fail2ban-whitelist.txt"
 
 _f2b_is_service_active() {
     # Check via systemctl first
-    if systemctl is-active --quiet fail2ban &>/dev/null; then
+    if systemctl is-active --quiet fail2ban 2>/dev/null; then
         return 0
     fi
-    # Fallback to fail2ban-client ping
+    # Fallback to fail2ban-client ping (ВАЖНО: вызываем напрямую, без run_cmd,
+    # иначе в dry-run/log режиме вывод перехватывается и сравнение не срабатывает)
     if command -v fail2ban-client &>/dev/null; then
         local ping_res
-        ping_res=$(run_cmd fail2ban-client ping 2>/dev/null)
-        if [[ "$ping_res" == *"Server replied: pong"* ]]; then
+        ping_res=$(fail2ban-client ping 2>/dev/null)
+        if [[ "$ping_res" == *"pong"* ]]; then
             return 0
         fi
     fi
@@ -29,11 +30,13 @@ _f2b_ensure_jail_logs_exist() {
         return 0
     fi
     info "Проверка и создание недостающих лог-файлов для активных Jail..."
-    run_cmd python3 - <<'PYEOF'
+    # Также автоматически отключаем nginx-jails если nginx не установлен и нет лог-файлов
+    python3 - <<'PYEOF'
 import configparser
 import os
 import re
 import sys
+import shutil
 
 fpath = "/etc/fail2ban/jail.local"
 if not os.path.exists(fpath):
@@ -46,28 +49,75 @@ except Exception as e:
     sys.stderr.write(f"Ошибка чтения jail.local: {e}\n")
     sys.exit(0)
 
+nginx_present = shutil.which("nginx") is not None
+nginx_jail_patterns = ["nginx", "bots", "scanners"]
+
+with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+    original_content = f.read()
+
+modified_content = original_content
+
 for section in config.sections():
     try:
-        if config.has_option(section, 'enabled') and config.get(section, 'enabled').lower() == 'true':
-            if config.has_option(section, 'logpath'):
-                logpath_val = config.get(section, 'logpath')
-                if logpath_val:
-                    paths = re.split(r'\s+', logpath_val.strip())
-                    for path in paths:
-                        if not path or '*' in path or '?' in path or path == 'systemd':
-                            continue
-                        if path.startswith('/'):
-                            dir_path = os.path.dirname(path)
-                            if not os.path.exists(dir_path):
+        is_enabled = config.has_option(section, 'enabled') and config.get(section, 'enabled').lower() == 'true'
+        if not is_enabled:
+            continue
+
+        section_lower = section.lower()
+        is_nginx_jail = any(pat in section_lower for pat in nginx_jail_patterns)
+
+        if config.has_option(section, 'logpath'):
+            logpath_val = config.get(section, 'logpath')
+            if logpath_val:
+                paths = re.split(r'\s+', logpath_val.strip())
+                all_missing = True
+                for path in paths:
+                    if not path or '*' in path or '?' in path or path == 'systemd':
+                        all_missing = False
+                        continue
+                    if path.startswith('/'):
+                        dir_path = os.path.dirname(path)
+                        if not os.path.exists(dir_path):
+                            try:
                                 os.makedirs(dir_path, exist_ok=True)
                                 os.chmod(dir_path, 0o755)
-                            if not os.path.exists(path):
-                                with open(path, 'a'):
-                                    pass
-                                os.chmod(path, 0o666)
-                                sys.stdout.write(f"Создан лог-заглушка: {path}\n")
+                            except Exception:
+                                pass
+                        if not os.path.exists(path):
+                            # Для nginx-jails без nginx — отключаем jail вместо создания заглушки
+                            if is_nginx_jail and not nginx_present:
+                                sys.stdout.write(f"[AUTO-DISABLE] Jail [{section}]: nginx не установлен, файл '{path}' отсутствует. Отключаю jail.\n")
+                                # Отключаем jail в файле
+                                section_pattern = re.compile(
+                                    rf'^(\[{re.escape(section)}\].*?)(?=^\[|\Z)',
+                                    re.MULTILINE | re.DOTALL
+                                )
+                                def disable_jail(m):
+                                    block = m.group(0)
+                                    block = re.sub(r'^(\s*enabled\s*=\s*)true', r'\g<1>false', block, flags=re.MULTILINE | re.IGNORECASE)
+                                    if not re.search(r'^\s*enabled\s*=', block, re.MULTILINE | re.IGNORECASE):
+                                        block = block.replace(f'[{section}]\n', f'[{section}]\nenabled = false\n', 1)
+                                    return block
+                                modified_content = section_pattern.sub(disable_jail, modified_content)
+                            else:
+                                try:
+                                    with open(path, 'a'):
+                                        pass
+                                    os.chmod(path, 0o666)
+                                    sys.stdout.write(f"Создан лог-заглушка: {path}\n")
+                                    all_missing = False
+                                except Exception as e2:
+                                    sys.stderr.write(f"Ошибка создания файла '{path}': {e2}\n")
+                        else:
+                            all_missing = False
+
     except Exception as e:
         sys.stderr.write(f"Ошибка обработки секции [{section}]: {e}\n")
+
+if modified_content != original_content:
+    with open(fpath, "w", encoding="utf-8") as f:
+        f.write(modified_content)
+    sys.stdout.write("jail.local обновлен (отключены недоступные jails).\n")
 PYEOF
 }
 
@@ -172,6 +222,7 @@ show_fail2ban_menu() {
             printf_menu_option "6" "🔔 Уведомления Telegram"
             echo ""
             printf_menu_option "s" "Перезапустить сервис"
+            printf_menu_option "r" "🔄 Полная переустановка (очистка + установка)" "${C_YELLOW}"
         fi
         
         echo ""
@@ -189,14 +240,32 @@ show_fail2ban_menu() {
             5) _f2b_settings_menu;;
             6) _f2b_notifications_menu; wait_for_enter;;
             i|I) _f2b_setup; wait_for_enter;;
+            r|R)
+                if ! command -v fail2ban-client &> /dev/null && ! dpkg -l fail2ban &>/dev/null 2>&1; then
+                    warn "Fail2Ban не установлен, нечего переустанавливать."
+                else
+                    _f2b_reinstall
+                fi
+                wait_for_enter
+                ;;
             s|S)
                 if ! command -v fail2ban-client &> /dev/null; then
                     warn "Fail2Ban не установлен."
                 else
                     _f2b_ensure_jail_logs_exist
-                    info "Перезапускаю Fail2Ban..."
-                    run_cmd systemctl restart fail2ban
-                    ok "Сервис перезапущен."
+                    if _f2b_validate_config; then
+                        info "Перезапускаю Fail2Ban..."
+                        run_cmd systemctl restart fail2ban
+                        sleep 2
+                        if _f2b_is_service_active; then
+                            ok "Сервис перезапущен и работает."
+                        else
+                            err "Сервис не запустился! Проверьте: journalctl -xeu fail2ban --no-pager | tail -30"
+                        fi
+                    else
+                        err "Конфигурация содержит ошибки. Сервис НЕ перезапускается."
+                        warn "Запустите 'Полную переустановку' (опция r) для сброса конфигурации."
+                    fi
                 fi
                 wait_for_enter
                 ;;
@@ -638,23 +707,24 @@ _f2b_extended_menu() {
                 local ssh_port; ssh_port=$(grep "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
                 ssh_port=${ssh_port:-22}
                 # Для SSH мы не передаем фильтр (f), так как он стандартный в системе
-                _f2b_jail_submenu "sshd" "syslog" "" "$ssh_port" "ufw[name=sshd, port=any, protocol=tcp]" "Стандартная защита SSH-доступа."
+                # Убраны пробелы в ufw[...] — они ломают парсер Fail2Ban >= 0.11
+                _f2b_jail_submenu "sshd" "syslog" "" "$ssh_port" "ufw[name=sshd,port=any,protocol=tcp]" "Стандартная защита SSH-доступа."
                 ;;
             1) 
                 local f="[Definition]\nfailregex = .*\[UFW BLOCK\] IN=.* SRC=<HOST> .*\nignoreregex ="
-                _f2b_jail_submenu "portscan-reshala" "syslog" "$f" "any" "ufw[name=portscan, port=any, protocol=tcp]" "Защита от сканирования портов на основе логов UFW."
+                _f2b_jail_submenu "portscan-reshala" "syslog" "$f" "any" "ufw[name=portscan,port=any,protocol=tcp]" "Защита от сканирования портов на основе логов UFW."
                 ;;
             2) 
                 local f="[Definition]\nfailregex = ^ \[error\] \d+#\d+: \*\d+ user \"\S+\":? (password mismatch|was not found in).*, client: <HOST>, server: \S+, request: \"\S+ \S+ HTTP/\d+\.\d+\", host: \"\S+\"\nignoreregex ="
-                _f2b_jail_submenu "nginx-auth-reshala" "nginx-error" "$f" "any" "ufw[name=nginx-auth, port=any, protocol=tcp]" "Защита от подбора паролей HTTP Basic Auth в Nginx."
+                _f2b_jail_submenu "nginx-auth-reshala" "nginx-error" "$f" "any" "ufw[name=nginx-auth,port=any,protocol=tcp]" "Защита от подбора паролей HTTP Basic Auth в Nginx."
                 ;;
             3) 
                 local f="[Definition]\nfailregex = ^<HOST> -.*\"(GET|POST|HEAD).*HTTP.*\"(?:-|.*)\" \"(?:.*)(?:[A-Za-z0-9](?:ndroid|pache|oard|rowser|rawler|curl|iscovery|ownload|ot|enesis|ttp|ndex|ava|raw|ider|rchive|earch|eek|lurp|urvey|ycobot|get|ython|ruby|rust|un|eb|get|ync|pider|can|lurp).*)\"$\nignoreregex ="
-                _f2b_jail_submenu "nginx-bots-reshala" "nginx-access" "$f" "any" "ufw[name=nginx-bots, port=any, protocol=tcp]" "Блокировка подозрительных ботов и парсеров в Nginx."
+                _f2b_jail_submenu "nginx-bots-reshala" "nginx-access" "$f" "any" "ufw[name=nginx-bots,port=any,protocol=tcp]" "Блокировка подозрительных ботов и парсеров в Nginx."
                 ;;
             4) 
                 local f="[Definition]\nfailregex = ^<HOST> .* \"(GET|POST|HEAD) .*(\\.php|\\.env|\\.git|\\.asp|wp-login|wp-admin|cgi-bin|/admin|/config|/setup|\\.sql|shell|eval|passwd|\\.bak).*\" (400|403|404|444)\n            ^<HOST> .* \"(GET|POST) .*(xmlrpc|wp-cron|wp-json/wp/v2/users).*\" (403|404)\nignoreregex ="
-                _f2b_jail_submenu "nginx-scanners-reshala" "nginx-access" "$f" "any" "ufw[name=nginx-scanners, port=any, protocol=tcp]" "Защита от сканирования уязвимостей и админок (404/403 ошибки)."
+                _f2b_jail_submenu "nginx-scanners-reshala" "nginx-access" "$f" "any" "ufw[name=nginx-scanners,port=any,protocol=tcp]" "Защита от сканирования уязвимостей и админок (404/403 ошибки)."
                 ;;
             c|C)
                 local custom_name
@@ -680,7 +750,7 @@ EOF
                 
                 # Открываем подменю для нового джейла!
                 # Передаем пустое f, так как файл фильтра мы только что создали.
-                _f2b_jail_submenu "$jail_name" "syslog" "" "any" "ufw[name=$jail_name, port=any, protocol=tcp]" "Кастомная защита: $jail_name"
+                _f2b_jail_submenu "$jail_name" "syslog" "" "any" "ufw[name=${jail_name//-/_},port=any,protocol=tcp]" "Кастомная защита: $jail_name"
                 ;;
             r|R)
                 if [[ ${#custom_jails[@]} -eq 0 ]]; then
@@ -729,7 +799,7 @@ EOF
                     local custom_idx=$((choice - 5))
                     if [[ "$custom_idx" -lt ${#custom_jails[@]} ]]; then
                         local selected_custom="${custom_jails[$custom_idx]}"
-                        _f2b_jail_submenu "$selected_custom" "syslog" "" "any" "ufw[name=$selected_custom, port=any, protocol=tcp]" "Кастомная защита: $selected_custom"
+                        _f2b_jail_submenu "$selected_custom" "syslog" "" "any" "ufw[name=${selected_custom//-/_},port=any,protocol=tcp]" "Кастомная защита: $selected_custom"
                     else
                         warn "Неверный выбор"
                     fi
@@ -842,6 +912,10 @@ _f2b_setup() {
 
     info "Создаю /etc/fail2ban/jail.local..."
 
+    # Определяем корректный синтаксис action для текущей версии Fail2Ban
+    # В Fail2Ban >= 0.11 пробелы внутри [] ломают парсер — убираем их
+    local f2b_action="ufw[name=sshd,port=any,protocol=tcp]"
+
     run_cmd tee /etc/fail2ban/jail.local > /dev/null <<JAIL
 [DEFAULT]
 bantime = $bantime
@@ -855,15 +929,23 @@ enabled = true
 port = any
 filter = sshd
 $ssh_log_config
-action = ufw[name=sshd, port=any, protocol=tcp]
+action = ${f2b_action}
 JAIL
 
     ok "Файл jail.local создан."
+
+    # Валидируем конфиг перед запуском
+    if ! _f2b_validate_config; then
+        err "Конфигурация содержит ошибки! Проверьте вывод выше."
+        err "Fail2Ban НЕ будет запущен во избежание проблем."
+        return 1
+    fi
 
     info "Включаю и перезапускаю сервис Fail2Ban..."
     run_cmd systemctl enable fail2ban
     _f2b_ensure_jail_logs_exist
     run_cmd systemctl restart fail2ban
+    sleep 2
     
     if _f2b_is_service_active; then
         ok "Fail2Ban успешно настроен и запущен!"
@@ -873,7 +955,9 @@ JAIL
             _f2b_apply_notification_settings "instant"
         fi
     else
-        err "Не удалось запустить Fail2Ban. Проверьте 'systemctl status fail2ban'."
+        err "Не удалось запустить Fail2Ban!"
+        err "Проверьте: journalctl -xeu fail2ban --no-pager | tail -30"
+        warn "Используйте 'Полную переустановку' для сброса конфигурации."
     fi
 }
 
@@ -1178,14 +1262,176 @@ _f2b_reload_or_start() {
     _f2b_ensure_jail_logs_exist
     if _f2b_is_service_active; then
         info "Перезагружаю конфигурацию Fail2Ban..."
-        run_cmd systemctl reload fail2ban 2>/dev/null || run_cmd systemctl restart fail2ban
-    else
-        info "Сервис Fail2Ban не активен. Пытаюсь запустить его..."
-        if run_cmd systemctl start fail2ban; then
-            ok "Сервис Fail2Ban успешно запущен!"
-        else
-            err "Не удалось запустить Fail2Ban. Проверьте конфигурацию с помощью 'fail2ban-client -d'."
+        if ! run_cmd systemctl reload fail2ban 2>/dev/null; then
+            warn "reload не удался, пробую restart..."
+            run_cmd systemctl restart fail2ban
         fi
+    else
+        info "Сервис Fail2Ban не активен. Проверяю конфигурацию..."
+        if _f2b_validate_config; then
+            if run_cmd systemctl start fail2ban; then
+                sleep 1
+                if _f2b_is_service_active; then
+                    ok "Сервис Fail2Ban успешно запущен!"
+                else
+                    err "Fail2Ban запустился, но тут же упал!"
+                    err "Проверьте: journalctl -xeu fail2ban --no-pager | tail -20"
+                fi
+            else
+                err "Не удалось запустить Fail2Ban."
+                err "Проверьте: journalctl -xeu fail2ban --no-pager | tail -20"
+            fi
+        else
+            err "Конфигурация содержит ошибки — запуск отменён!"
+            warn "Используйте 'Полную переустановку' для сброса конфигурации."
+        fi
+    fi
+}
+
+# Валидация конфигурации Fail2Ban (сухой запуск)
+_f2b_validate_config() {
+    if ! command -v fail2ban-client &>/dev/null; then
+        return 1
+    fi
+    info "Проверяю конфигурацию Fail2Ban (dry-run)..."
+    local output
+    output=$(fail2ban-client -d 2>&1)
+    local exit_code=$?
+    if [[ $exit_code -eq 0 ]]; then
+        ok "Конфигурация Fail2Ban валидна."
+        return 0
+    else
+        err "Ошибки конфигурации Fail2Ban:"
+        # Показываем только строки с ERROR/WARNING
+        echo "$output" | grep -iE 'error|warning|invalid|not found' | head -20 | while IFS= read -r line; do
+            printf_description "  ${C_RED}${line}${C_RESET}"
+        done
+        return 1
+    fi
+}
+
+# Полная переустановка Fail2Ban (удаление всего + чистая установка)
+_f2b_reinstall() {
+    print_separator
+    warn "⚠️  ПОЛНАЯ ПЕРЕУСТАНОВКА FAIL2BAN"
+    print_separator
+    echo -e "  ${C_YELLOW}Это действие:${C_RESET}"
+    printf_description "  1. Остановит Fail2Ban и создаст бэкап текущего jail.local"
+    printf_description "  2. Полностью удалит пакет fail2ban (purge) и очистит конфиги"
+    printf_description "  3. Заново установит fail2ban + python3-systemd"
+    printf_description "  4. Предложит восстановить бэкап или создать конфиг заново"
+    echo ""
+    warn "Все активные IP-баны будут сброшены!"
+    echo ""
+
+    if ! ask_yes_no "Вы уверены? Это необратимое действие (бэкап jail.local будет сохранен)."; then
+        info "Отмена."
+        return
+    fi
+
+    # 1. Бэкап текущей конфигурации
+    local backup_dir="/etc/reshala/backups/fail2ban"
+    run_cmd mkdir -p "$backup_dir"
+    local ts
+    ts=$(date +%Y%m%d_%H%M%S)
+
+    if [[ -f "/etc/fail2ban/jail.local" ]]; then
+        run_cmd cp "/etc/fail2ban/jail.local" "${backup_dir}/jail.local.${ts}.bak"
+        ok "Бэкап создан: ${backup_dir}/jail.local.${ts}.bak"
+    fi
+    if [[ -f "$F2B_WHITELIST_FILE" ]]; then
+        run_cmd cp "$F2B_WHITELIST_FILE" "${backup_dir}/fail2ban-whitelist.${ts}.bak"
+        ok "Бэкап whitelist создан."
+    fi
+    # Бэкап кастомных фильтров
+    if ls /etc/fail2ban/filter.d/custom-*.conf &>/dev/null 2>&1; then
+        run_cmd mkdir -p "${backup_dir}/filter.d"
+        run_cmd cp /etc/fail2ban/filter.d/custom-*.conf "${backup_dir}/filter.d/" 2>/dev/null || true
+        ok "Бэкап кастомных фильтров создан."
+    fi
+
+    # 2. Остановка и полное удаление
+    info "Останавливаю Fail2Ban..."
+    run_cmd systemctl stop fail2ban 2>/dev/null || true
+    run_cmd systemctl disable fail2ban 2>/dev/null || true
+
+    info "Удаляю пакет fail2ban (purge)..."
+    if command -v apt-get &>/dev/null; then
+        run_cmd apt-get purge -y fail2ban 2>/dev/null || true
+        run_cmd apt-get autoremove -y 2>/dev/null || true
+    elif command -v yum &>/dev/null; then
+        run_cmd yum remove -y fail2ban 2>/dev/null || true
+    fi
+
+    # 3. Полная очистка файлов (кроме наших бэкапов)
+    info "Очищаю остатки конфигурации..."
+    run_cmd rm -rf /etc/fail2ban 2>/dev/null || true
+    run_cmd rm -rf /var/lib/fail2ban 2>/dev/null || true
+    run_cmd rm -rf /var/run/fail2ban 2>/dev/null || true
+    ok "Очистка завершена."
+
+    # 4. Заново устанавливаем
+    info "Устанавливаю fail2ban..."
+    if command -v apt-get &>/dev/null; then
+        run_cmd apt-get update
+        if ! run_cmd apt-get install -y fail2ban; then
+            err "Не удалось установить fail2ban!"
+            return 1
+        fi
+        # Устанавливаем python3-systemd для systemd backend
+        run_cmd apt-get install -y python3-systemd 2>/dev/null || true
+    elif command -v yum &>/dev/null; then
+        if ! run_cmd yum install -y fail2ban; then
+            err "Не удалось установить fail2ban!"
+            return 1
+        fi
+        run_cmd yum install -y python3-systemd 2>/dev/null || true
+    fi
+    ok "Fail2Ban установлен."
+
+    # 5. Восстанавливаем кастомные фильтры
+    if ls "${backup_dir}/filter.d/"custom-*.conf &>/dev/null 2>&1; then
+        run_cmd mkdir -p /etc/fail2ban/filter.d
+        run_cmd cp "${backup_dir}/filter.d/"custom-*.conf /etc/fail2ban/filter.d/ 2>/dev/null || true
+        ok "Кастомные фильтры восстановлены."
+    fi
+
+    # 6. Предлагаем варианты конфигурации
+    echo ""
+    echo -e "  ${C_CYAN}Восстановление конфигурации:${C_RESET}"
+    printf_menu_option "1" "Восстановить бэкап jail.local (${ts})"
+    printf_menu_option "2" "Создать новую конфигурацию через мастер настройки"
+    echo ""
+    local cfg_choice
+    cfg_choice=$(safe_read "Выбор" "2") || cfg_choice="2"
+
+    if [[ "$cfg_choice" == "1" ]] && [[ -f "${backup_dir}/jail.local.${ts}.bak" ]]; then
+        run_cmd cp "${backup_dir}/jail.local.${ts}.bak" /etc/fail2ban/jail.local
+        ok "Конфигурация восстановлена из бэкапа."
+        # Восстанавливаем whitelist если был
+        if [[ -f "${backup_dir}/fail2ban-whitelist.${ts}.bak" ]]; then
+            run_cmd mkdir -p /etc/reshala
+            run_cmd cp "${backup_dir}/fail2ban-whitelist.${ts}.bak" "$F2B_WHITELIST_FILE"
+        fi
+        # Применяем ensure_logs и валидируем
+        _f2b_ensure_jail_logs_exist
+        if _f2b_validate_config; then
+            run_cmd systemctl enable fail2ban
+            run_cmd systemctl start fail2ban
+            sleep 2
+            if _f2b_is_service_active; then
+                ok "Fail2Ban запущен с восстановленной конфигурацией!"
+            else
+                warn "Fail2Ban с восстановленным конфигом не запустился."
+                warn "Попробуйте создать новый конфиг через мастер настройки."
+            fi
+        else
+            warn "Восстановленный бэкап содержит ошибки."
+            warn "Рекомендуется запустить мастер настройки заново."
+        fi
+    else
+        info "Запускаю мастер первоначальной настройки..."
+        _f2b_setup
     fi
 }
 
@@ -1573,7 +1819,8 @@ _f2b_jail_submenu() {
                     continue
                 fi
                 
-                new_a_val="ufw[name=${jail_name//-/_}, port=${new_p_val}, protocol=tcp]"
+                # Убираем пробелы в ufw[...] — они ломают парсер Fail2Ban >= 0.11
+                new_a_val="ufw[name=${jail_name//-/_},port=${new_p_val},protocol=tcp]"
                 
                 if grep -q "^\s*\[$jail_name\]" /etc/fail2ban/jail.local 2>/dev/null; then
                     _f2b_save_jail_option "$jail_name" "port" "${new_p_val}"

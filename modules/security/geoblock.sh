@@ -99,11 +99,11 @@ show_geoblock_menu() {
 
 _geo_get_ipset_count() {
     local set_name="$1"
-    if ! run_cmd ipset list "$set_name" -terse &>/dev/null; then
+    if ! ipset list "$set_name" -terse &>/dev/null; then
         echo "0"
         return
     fi
-    run_cmd ipset list "$set_name" -terse 2>/dev/null | grep -Fi "Number of entries:" | awk '{print $4}' || echo "0"
+    ipset list "$set_name" -terse 2>/dev/null | grep -Fi "Number of entries:" | awk '{print $4}' || echo "0"
 }
 
 _geo_print_card_row() {
@@ -216,7 +216,7 @@ _geo_show_status() {
     local countries_count=0
     local names_str=""
     
-    if run_cmd ipset list "$GEO_IPSET_NAME" -terse &>/dev/null 2>&1; then
+    if ipset list "$GEO_IPSET_NAME" -terse &>/dev/null; then
         active=1
         ip_count=$(_geo_get_ipset_count "$GEO_IPSET_NAME")
         
@@ -752,8 +752,19 @@ _geo_draw_progress_bar() {
     for ((i=0; i<filled; i++)); do bar="${bar}█"; done
     for ((i=0; i<empty; i++)); do bar="${bar}░"; done
     
-    printf "\r  ${C_CYAN}[%s]${C_RESET} %3d%% (%d/%d) | Текущая: ${C_YELLOW}%-15.15s${C_RESET} | Подсети: ${C_GREEN}%d${C_RESET}\e[K" \
-        "$bar" "$percentage" "$current" "$total" "$country_name" "$subnets"
+    # Решаем проблему с обрезкой кириллицы (Узбекис)
+    local display_name="$country_name"
+    if (( ${#display_name} > 15 )); then
+        display_name="${display_name:0:14}…"
+    fi
+    local pad=$(( 15 - ${#display_name} ))
+    local pad_str=""
+    if (( pad > 0 )); then
+        pad_str=$(printf '%*s' "$pad" "")
+    fi
+    
+    printf "\r  ${C_CYAN}[%s]${C_RESET} %3d%% (%d/%d) | Текущая: ${C_YELLOW}%s%s${C_RESET} | Подсети: ${C_GREEN}%d${C_RESET}\e[K" \
+        "$bar" "$percentage" "$current" "$total" "$display_name" "$pad_str" "$subnets"
 }
 
 _geo_activate() {
@@ -850,6 +861,10 @@ _geo_activate() {
             
             (
                 curl -s --max-time 15 "$zone_url" > "$temp_dir/$country.zone"
+                # Fallback если файл пуст или скачался html/ошибка
+                if [[ ! -s "$temp_dir/$country.zone" ]] || ! grep -q "^[0-9]" "$temp_dir/$country.zone"; then
+                    curl -s --max-time 15 "https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/ipv4/${country,,}.cidr" > "$temp_dir/$country.zone"
+                fi
             ) &
             local new_pid=$!
             pids+=("$new_pid")
@@ -1214,6 +1229,9 @@ while IFS= read -r country || [[ -n "$country" ]]; do
     [[ -z "$country" ]] && continue
     
     ZONE_DATA=$(curl -s --max-time 15 "https://www.ipdeny.com/ipblocks/data/aggregated/${country}-aggregated.zone" 2>/dev/null)
+    if [[ -z "$ZONE_DATA" ]] || ! echo "$ZONE_DATA" | grep -q "^[0-9]"; then
+        ZONE_DATA=$(curl -s --max-time 15 "https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/ipv4/${country}.cidr" 2>/dev/null)
+    fi
     if [[ -n "$ZONE_DATA" ]]; then
         echo "$ZONE_DATA" | awk -v set_name="${GEO_IPSET_NAME}" '/^[0-9]/ {print "add " set_name " " $1 " -exist"}' >> "$TEMP_RESTORE"
     fi
@@ -1265,7 +1283,7 @@ _geo_show_stats() {
     info "Статистика Geo-Block"
     print_separator
 
-    if ! run_cmd ipset list "$GEO_IPSET_NAME" -terse &>/dev/null 2>&1; then
+    if ! ipset list "$GEO_IPSET_NAME" -terse &>/dev/null; then
         warn "Geo-Block не активен."
         return
     fi
@@ -1423,6 +1441,9 @@ subnets_total=0
 for country in "${countries[@]}"; do
     zone_url="https://www.ipdeny.com/ipblocks/data/aggregated/${country,,}-aggregated.zone"
     curl -s --max-time 15 "$zone_url" > "$temp_dir/$country.zone"
+    if [[ ! -s "$temp_dir/$country.zone" ]] || ! grep -q "^[0-9]" "$temp_dir/$country.zone"; then
+        curl -s --max-time 15 "https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/ipv4/${country,,}.cidr" > "$temp_dir/$country.zone"
+    fi
     if [[ -f "$temp_dir/$country.zone" ]]; then
         count=$(grep -c "^[0-9]" "$temp_dir/$country.zone" || echo "0")
         if [[ "$count" -gt 0 ]]; then
