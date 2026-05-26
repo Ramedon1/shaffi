@@ -19,9 +19,9 @@ printf_warn()  { printf "%b[!] %b%b\n" "${C_YELLOW}" "$*" "${C_RESET}"; }
 printf_err()   { printf "%b[✗] %b%b\n" "${C_RED}" "$*" "${C_RESET}"; }
 printf_info()  { printf "%b[i] %b%b\n" "${C_GRAY}" "$*" "${C_RESET}"; }
 
-echo -e "${C_CYAN}${C_BOLD}╔══════════════════════════════════════════════════════════════╗${C_RESET}"
-echo -e "${C_CYAN}${C_BOLD}║${C_RESET}  ${C_YELLOW}${C_BOLD}🔬  ПРОФЕССИОНАЛЬНАЯ ДИАГНОСТИКА И ТЕСТИРОВАНИЕ BEDOLAGA${C_RESET}   ${C_CYAN}${C_BOLD}║${C_RESET}"
-echo -e "${C_CYAN}${C_BOLD}╚══════════════════════════════════════════════════════════════╝${C_RESET}"
+echo -e "${C_CYAN}${C_BOLD}╔══════════════════════════════════════════════════════════════════════════════╗${C_RESET}"
+echo -e "${C_CYAN}${C_BOLD}║${C_RESET}  ${C_YELLOW}${C_BOLD}🔬  ПРОФЕССИОНАЛЬНАЯ ДИАГНОСТИКА: 🛡️  МАСКИРОВЩИК ЛЕНДИНГА BEDOLAGA${C_RESET}   ${C_CYAN}${C_BOLD}║${C_RESET}"
+echo -e "${C_CYAN}${C_BOLD}╚══════════════════════════════════════════════════════════════════════════════╝${C_RESET}"
 
 # Шаг 0: Проверка и создание виртуального окружения
 if [[ ! -x ".venv/bin/python" ]]; then
