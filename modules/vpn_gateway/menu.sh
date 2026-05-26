@@ -2568,8 +2568,13 @@ vgw_reconfigure_wizard(){
             # Получаем cname и cpath из сохранённого файла
             local cname="" cpath=""
             case "$saved_type" in
-                docker:conf.d) cpath="$(dirname "$saved_file")" ;;
-                docker:nginx)  cname="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i nginx | grep -v vpn-edge-nginx | head -1)" ;;
+                docker:conf.d)
+                    cname="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i nginx | grep -v vpn-edge-nginx | head -1)"
+                    cpath="$(dirname "$saved_file")"
+                    ;;
+                docker:nginx)
+                    cname="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i nginx | grep -v vpn-edge-nginx | head -1)"
+                    ;;
             esac
             local csrc; csrc=$(_vgw_detect_cert_source "$cname")
             _vgw_nginx_inject_auto "${saved_type}" "$cname" "$cpath" "$csrc" "$new_domain" "$https_port" || true
