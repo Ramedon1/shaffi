@@ -1589,7 +1589,7 @@ _vgw_nginx_inject_auto() {
             _vgw_nginx_injection_save "host:nginx" "$conf_file" "$domain"
             ;;
 
-        docker:conf.d:*)
+        docker:conf.d|docker:conf.d:*)
             local conf_host="${cpath}/80-bedolaga.conf"
 
             # ── Шаг 0.5: Убеждаемся, что сертификаты УЖЕ лежат на хосте ДО перезапуска контейнера ──
@@ -1731,7 +1731,7 @@ PY
             _vgw_nginx_injection_save "docker:conf.d" "$conf_host" "$domain"
             ;;
 
-        docker:nginx:*)
+        docker:nginx|docker:nginx:*)
             # Прочий docker nginx: инжект через docker cp
             # ── Шаг 0.5: Убеждаемся, что сертификаты УЖЕ лежат на хосте ДО перезапуска контейнера ──
             if [[ "$VOLUME_NEEDED" == "1" && "$CERT" == "/etc/nginx/certs/"* ]]; then
