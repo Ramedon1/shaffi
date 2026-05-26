@@ -65,14 +65,14 @@ if [[ -f "${FULLCHAIN}" && -f "${PRIVKEY}" ]]; then
 
   is_self_signed=0
   # Очищаем префиксы subject= и issuer= для корректного сравнения (они отличаются в выводе openssl)
-  local clean_subject; clean_subject=$(echo "${cert_subject}" | sed -E 's/^(subject|issuer)=\s*//')
-  local clean_issuer; clean_issuer=$(echo "${cert_issuer}" | sed -E 's/^(subject|issuer)=\s*//')
+  clean_subject=$(echo "${cert_subject}" | sed -E 's/^(subject|issuer)=\s*//')
+  clean_issuer=$(echo "${cert_issuer}" | sed -E 's/^(subject|issuer)=\s*//')
   if [[ -n "${clean_subject}" && "${clean_subject}" == "${clean_issuer}" ]]; then
     is_self_signed=1
   fi
   # Дополнительная проверка по хешам субъекта и издателя (OpenSSL-native)
-  local sub_hash; sub_hash=$(openssl x509 -noout -subject_hash -in "${FULLCHAIN}" 2>/dev/null || echo "1")
-  local iss_hash; iss_hash=$(openssl x509 -noout -issuer_hash -in "${FULLCHAIN}" 2>/dev/null || echo "2")
+  sub_hash=$(openssl x509 -noout -subject_hash -in "${FULLCHAIN}" 2>/dev/null || echo "1")
+  iss_hash=$(openssl x509 -noout -issuer_hash -in "${FULLCHAIN}" 2>/dev/null || echo "2")
   if [[ "${sub_hash}" == "${iss_hash}" ]]; then
     is_self_signed=1
   fi
