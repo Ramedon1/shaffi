@@ -92,7 +92,7 @@ else
 fi
 
 # Синхронизация с персистентным хранилищем бэкапа
-PERSIST_CERTS_DIR="/etc/reshala-bedolaga/certs"
+PERSIST_CERTS_DIR="/etc/reshala-bedolaga/certs/${EDGE_DOMAIN}"
 if [[ -f "${CERTS_DIR}/fullchain.pem" && -f "${CERTS_DIR}/privkey.pem" ]]; then
   mkdir -p "${PERSIST_CERTS_DIR}" 2>/dev/null && \
     cp -f "${CERTS_DIR}/fullchain.pem" "${PERSIST_CERTS_DIR}/fullchain.pem" && \

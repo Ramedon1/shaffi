@@ -58,12 +58,19 @@ if [[ -z "${EDGE_DOMAIN}" ]]; then
 fi
 
 # Восстанавливаем из персистентного бэкапа если на хосте в edge/certs пусто
-PERSIST_CERTS_DIR="/etc/reshala-bedolaga/certs"
+PERSIST_CERTS_DIR="/etc/reshala-bedolaga/certs/${EDGE_DOMAIN}"
 if [[ ! -f "${FULLCHAIN}" || ! -f "${PRIVKEY}" ]]; then
+  # Сначала пробуем доменную папку
   if [[ -f "${PERSIST_CERTS_DIR}/fullchain.pem" && -f "${PERSIST_CERTS_DIR}/privkey.pem" ]]; then
     echo "[info] Восстанавливаю существующий Let's Encrypt сертификат из персистентного бэкапа..."
     cp -f "${PERSIST_CERTS_DIR}/fullchain.pem" "${FULLCHAIN}"
     cp -f "${PERSIST_CERTS_DIR}/privkey.pem" "${PRIVKEY}"
+    chmod 600 "${PRIVKEY}"
+  # Поддерживаем обратную совместимость с общим бэкапом
+  elif [[ -f "/etc/reshala-bedolaga/certs/fullchain.pem" && -f "/etc/reshala-bedolaga/certs/privkey.pem" ]]; then
+    echo "[info] Восстанавливаю существующий Let's Encrypt сертификат из устаревшего общего бэкапа..."
+    cp -f "/etc/reshala-bedolaga/certs/fullchain.pem" "${FULLCHAIN}"
+    cp -f "/etc/reshala-bedolaga/certs/privkey.pem" "${PRIVKEY}"
     chmod 600 "${PRIVKEY}"
   fi
 fi
@@ -183,7 +190,7 @@ fi
 EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml restart edge-nginx
 
 # Сохраняем сертификаты в персистентное хранилище — переживут git pull и пересоздание контейнеров
-PERSIST_CERTS_DIR="/etc/reshala-bedolaga/certs"
+PERSIST_CERTS_DIR="/etc/reshala-bedolaga/certs/${EDGE_DOMAIN}"
 if [[ -f "${FULLCHAIN}" && -f "${PRIVKEY}" ]]; then
   mkdir -p "${PERSIST_CERTS_DIR}" 2>/dev/null && \
     cp -f "${FULLCHAIN}" "${PERSIST_CERTS_DIR}/fullchain.pem" && \

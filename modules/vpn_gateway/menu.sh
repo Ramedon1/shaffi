@@ -147,24 +147,44 @@ except: print('')" 2>/dev/null || echo "")
 }
 
 # ── Сертификаты ───────────────────────────────────────────────────
-# Сохраняет сертификаты в /etc/reshala-bedolaga/certs/ после выпуска/продления
+# Сохраняет сертификаты в /etc/reshala-bedolaga/certs/<domain>/ после выпуска/продления
 _vgw_certs_save_persistent() {
+    local domain; domain=$(_vgw_read_quick_field public_domain 2>/dev/null || echo "")
+    [[ -n "$domain" && "$domain" != "vpn.example.com" ]] || return 0
+
     local certs_dir; certs_dir="$(_vgw_certs_dir)"
     local fullchain="${certs_dir}/fullchain.pem"
     local privkey="${certs_dir}/privkey.pem"
     [[ -f "$fullchain" && -f "$privkey" ]] || return 0
-    mkdir -p "${_VGW_PERSIST_CERTS_DIR}" 2>/dev/null || return 0
-    cp -f "$fullchain" "${_VGW_PERSIST_CERTS_DIR}/fullchain.pem" 2>/dev/null || true
-    cp -f "$privkey"   "${_VGW_PERSIST_CERTS_DIR}/privkey.pem"   2>/dev/null || true
-    chmod 600 "${_VGW_PERSIST_CERTS_DIR}/privkey.pem" 2>/dev/null || true
+
+    local domain_persist_certs_dir="${_VGW_PERSIST_DIR}/certs/${domain}"
+    mkdir -p "${domain_persist_certs_dir}" 2>/dev/null || return 0
+    cp -f "$fullchain" "${domain_persist_certs_dir}/fullchain.pem" 2>/dev/null || true
+    cp -f "$privkey"   "${domain_persist_certs_dir}/privkey.pem"   2>/dev/null || true
+    chmod 600 "${domain_persist_certs_dir}/privkey.pem" 2>/dev/null || true
 }
 
 # Автовосстановление сертификатов: если в edge/certs/ их нет, но бэкап есть — копируем молча
 _vgw_certs_restore_if_needed() {
+    local domain; domain=$(_vgw_read_quick_field public_domain 2>/dev/null || echo "")
+    [[ -n "$domain" && "$domain" != "vpn.example.com" ]] || return 0
+
     local certs_dir; certs_dir="$(_vgw_certs_dir)"
-    local bak_full="${_VGW_PERSIST_CERTS_DIR}/fullchain.pem"
-    local bak_key="${_VGW_PERSIST_CERTS_DIR}/privkey.pem"
-    # Бэкапа нет — нечего восстанавливать
+    local domain_persist_certs_dir="${_VGW_PERSIST_DIR}/certs/${domain}"
+    local legacy_persist_certs_dir="${_VGW_PERSIST_DIR}/certs"
+
+    local bak_full="${domain_persist_certs_dir}/fullchain.pem"
+    local bak_key="${domain_persist_certs_dir}/privkey.pem"
+    local resolved_bak_dir="${domain_persist_certs_dir}"
+
+    # Если в доменной папке бэкапа нет, проверяем устаревший общий бэкап
+    if [[ ! -f "$bak_full" || ! -f "$bak_key" ]]; then
+        bak_full="${legacy_persist_certs_dir}/fullchain.pem"
+        bak_key="${legacy_persist_certs_dir}/privkey.pem"
+        resolved_bak_dir="${legacy_persist_certs_dir}"
+    fi
+
+    # Бэкапа нет нигде — нечего восстанавливать
     [[ -f "$bak_full" && -f "$bak_key" ]] || return 0
     # Рабочие сертификаты уже есть — не трогаем
     [[ -f "${certs_dir}/fullchain.pem" && -f "${certs_dir}/privkey.pem" ]] && return 0
@@ -173,7 +193,7 @@ _vgw_certs_restore_if_needed() {
     cp -f "$bak_full" "${certs_dir}/fullchain.pem" 2>/dev/null || true
     cp -f "$bak_key"  "${certs_dir}/privkey.pem"   2>/dev/null || true
     chmod 600 "${certs_dir}/privkey.pem" 2>/dev/null || true
-    ok "Сертификаты автоматически восстановлены из ${_VGW_PERSIST_CERTS_DIR}"
+    ok "Сертификаты автоматически восстановлены из ${resolved_bak_dir}"
 
     local reloaded=0
 
@@ -871,7 +891,12 @@ _vgw_detect_cert_source() {
     fi
     # Наш рабочий каталог сертификатов (всегда отдаем его, так как авто-восстановление переносит бэкапы сюда)
     local live_certs_dir; live_certs_dir="$(_vgw_certs_dir)"
-    if [[ -f "${live_certs_dir}/fullchain.pem" || -f /etc/reshala-bedolaga/certs/fullchain.pem ]]; then
+    local domain; domain=$(_vgw_read_quick_field public_domain 2>/dev/null || echo "")
+    local domain_backup=""
+    if [[ -n "$domain" ]]; then
+        domain_backup="/etc/reshala-bedolaga/certs/${domain}/fullchain.pem"
+    fi
+    if [[ -f "${live_certs_dir}/fullchain.pem" || ( -n "$domain_backup" && -f "$domain_backup" ) || -f /etc/reshala-bedolaga/certs/fullchain.pem ]]; then
         echo "reshala:${live_certs_dir}:/etc/nginx/certs"
         return 0
     fi
@@ -2196,6 +2221,8 @@ print(c.get('quick_setup',{}).get('origin_domain','cabinet.example.com'))" 2>/de
     local resolved_cert_path=""
     if [[ -f "/etc/letsencrypt/live/${public_domain}/fullchain.pem" ]]; then
         resolved_cert_path="/etc/letsencrypt/live/${public_domain}"
+    elif [[ -f "/etc/reshala-bedolaga/certs/${public_domain}/fullchain.pem" ]]; then
+        resolved_cert_path="/etc/reshala-bedolaga/certs/${public_domain}"
     elif [[ -f "/etc/reshala-bedolaga/certs/fullchain.pem" ]]; then
         resolved_cert_path="/etc/reshala-bedolaga/certs"
     elif [[ -f "$(_vgw_certs_dir)/fullchain.pem" ]]; then
