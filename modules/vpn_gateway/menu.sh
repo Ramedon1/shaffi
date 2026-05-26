@@ -1556,6 +1556,40 @@ _vgw_nginx_inject_auto() {
                         p=$(dirname "$p")
                     done
                     
+                    # Если всё ещё не читается, пробуем форсированно пересоздать контейнер для сброса сломанных mount-директорий
+                    if ! docker exec "$cname" sh -c "[ -f '$CERT' ] && [ -r '$CERT' ] && [ -f '$KEY' ] && [ -r '$KEY' ]" 2>/dev/null; then
+                        info "Контейнер всё ещё не видит файлы. Пытаюсь форсированно пересоздать контейнер $cname для исправления биндов..."
+                        local compose_file; compose_file=$(_vgw_find_compose_file "$cname")
+                        if [[ -n "$compose_file" ]]; then
+                            local compose_dir; compose_dir=$(dirname "$compose_file")
+                            local dc_cmd="docker compose"
+                            command -v docker-compose &>/dev/null && ! docker compose version &>/dev/null && dc_cmd="docker-compose"
+                            
+                            local svc_name
+                            svc_name=$(COMPOSE_FILE="$compose_file" CNAME="$cname" "$(_vgw_python)" - <<'PY'
+import os, sys, yaml
+from pathlib import Path
+try:
+    data = yaml.safe_load(Path(os.environ["COMPOSE_FILE"]).read_text(encoding="utf-8")) or {}
+    services = data.get("services") or {}
+    for s_name, s in services.items():
+        if isinstance(s, dict) and s.get("container_name", "") == os.environ["CNAME"]:
+            print(s_name); sys.exit(0)
+    for s_name, s in services.items():
+        if "nginx" in s_name.lower():
+            print(s_name); sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+PY
+)
+                            if [[ -n "$svc_name" ]]; then
+                                ( cd "$compose_dir" && $dc_cmd up -d --force-recreate "$svc_name" 2>&1 ) || true
+                                sleep 3
+                            fi
+                        fi
+                    fi
+                    
                     if ! docker exec "$cname" sh -c "[ -f '$CERT' ] && [ -r '$CERT' ] && [ -f '$KEY' ] && [ -r '$KEY' ]" 2>/dev/null; then
                         printf_error "Критическая ошибка: Сертификаты недоступны или не являются файлами внутри контейнера $cname!"
                         warn "Пути на хосте: $(_vgw_certs_dir)"
@@ -1638,6 +1672,40 @@ _vgw_nginx_inject_auto() {
                         p=$(dirname "$p")
                     done
                     
+                    # Если всё ещё не читается, пробуем форсированно пересоздать контейнер для сброса сломанных mount-директорий
+                    if ! docker exec "$cname" sh -c "[ -f '$CERT' ] && [ -r '$CERT' ] && [ -f '$KEY' ] && [ -r '$KEY' ]" 2>/dev/null; then
+                        info "Контейнер всё ещё не видит файлы. Пытаюсь форсированно пересоздать контейнер $cname для исправления биндов..."
+                        local compose_file; compose_file=$(_vgw_find_compose_file "$cname")
+                        if [[ -n "$compose_file" ]]; then
+                            local compose_dir; compose_dir=$(dirname "$compose_file")
+                            local dc_cmd="docker compose"
+                            command -v docker-compose &>/dev/null && ! docker compose version &>/dev/null && dc_cmd="docker-compose"
+                            
+                            local svc_name
+                            svc_name=$(COMPOSE_FILE="$compose_file" CNAME="$cname" "$(_vgw_python)" - <<'PY'
+import os, sys, yaml
+from pathlib import Path
+try:
+    data = yaml.safe_load(Path(os.environ["COMPOSE_FILE"]).read_text(encoding="utf-8")) or {}
+    services = data.get("services") or {}
+    for s_name, s in services.items():
+        if isinstance(s, dict) and s.get("container_name", "") == os.environ["CNAME"]:
+            print(s_name); sys.exit(0)
+    for s_name, s in services.items():
+        if "nginx" in s_name.lower():
+            print(s_name); sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+PY
+)
+                            if [[ -n "$svc_name" ]]; then
+                                ( cd "$compose_dir" && $dc_cmd up -d --force-recreate "$svc_name" 2>&1 ) || true
+                                sleep 3
+                            fi
+                        fi
+                    fi
+                    
                     if ! docker exec "$cname" sh -c "[ -f '$CERT' ] && [ -r '$CERT' ] && [ -f '$KEY' ] && [ -r '$KEY' ]" 2>/dev/null; then
                         printf_error "Критическая ошибка: Сертификаты недоступны или не являются файлами внутри контейнера $cname!"
                         return 1
@@ -1679,6 +1747,49 @@ _vgw_nginx_inject_auto() {
             return 1
             ;;
     esac
+
+    # ── Шаг 5: Дополнительный автоматический выпуск Let's Encrypt (для бесшовной однопроходной установки) ──
+    local fullchain_path="$(_vgw_certs_dir)/fullchain.pem"
+    local is_self_signed=0
+    if [[ -f "$fullchain_path" ]]; then
+        local cert_subject; cert_subject=$(openssl x509 -noout -subject -in "$fullchain_path" 2>/dev/null || echo "")
+        local cert_issuer; cert_issuer=$(openssl x509 -noout -issuer -in "$fullchain_path" 2>/dev/null || echo "")
+        local clean_subject; clean_subject=$(echo "${cert_subject}" | sed -E 's/^(subject|issuer)=\s*//')
+        local clean_issuer; clean_issuer=$(echo "${cert_issuer}" | sed -E 's/^(subject|issuer)=\s*//')
+        if [[ -n "${clean_subject}" && "${clean_subject}" == "${clean_issuer}" ]]; then
+            is_self_signed=1
+        fi
+        # Нативный openssl хеш-чек
+        local sub_hash; sub_hash=$(openssl x509 -noout -subject_hash -in "$fullchain_path" 2>/dev/null || echo "1")
+        local iss_hash; iss_hash=$(openssl x509 -noout -issuer_hash -in "$fullchain_path" 2>/dev/null || echo "2")
+        if [[ "${sub_hash}" == "${iss_hash}" ]]; then
+            is_self_signed=1
+        fi
+    fi
+
+    if [[ "$is_self_signed" -eq 1 ]]; then
+        # Проверяем, включен ли Let's Encrypt вообще в конфиге gateway.yml перед выпуском
+        local cfg_file; cfg_file="$(_vgw_cfg_file)"
+        local py_bin; py_bin="$(_vgw_python)"
+        local acme_enabled
+        acme_enabled=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(str(c.get('quick_setup',{}).get('acme_enabled', True)).lower())" 2>/dev/null || echo "true")
+        
+        if [[ "$acme_enabled" == "true" ]]; then
+            local proj_dir; proj_dir="$(_vgw_project_dir)"
+            if [[ -x "${proj_dir}/scripts/ensure-certs.sh" ]]; then
+                info "Конфигурация Nginx применена. Запускаю автоматический выпуск Let's Encrypt..."
+                ( cd "${proj_dir}" && ./scripts/ensure-certs.sh ) || warn "Не удалось автоматически выпустить Let's Encrypt."
+                
+                # Если у нас Docker-инжект, просим Nginx перезагрузить сертификаты
+                if [[ -n "$cname" ]]; then
+                    docker exec "$cname" nginx -s reload &>/dev/null || true
+                else
+                    systemctl reload nginx &>/dev/null || true
+                fi
+            fi
+        fi
+    fi
+
     return 0
 }
 
