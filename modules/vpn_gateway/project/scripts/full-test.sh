@@ -142,15 +142,18 @@ fi
 # Шаг 4: Тест сетевого отклика веб-сервера (Smoke Test)
 printf_title "Шаг 4: Тестирование сетевых ответов шлюза (HTTP/HTTPS)"
 
-# Пробуем проверить локальный отклик ядра шлюза внутри контейнера
+# Пробуем проверить локальный отклик ядра шлюза внутри контейнера (используем встроенный Python, т.к. curl/wget могут отсутствовать в slim-образе)
 if [[ $GW_RUNNING -eq 1 ]]; then
   printf_info "Проверяю отклик ядра vpn-gateway внутри контейнера (порт 8080)..."
-  GATEWAY_HEALTH=$(docker exec vpn-gateway curl -fsS http://localhost:8080/health 2>&1)
-  if [[ $? -eq 0 ]] || [[ "$GATEWAY_HEALTH" == *"ok"* ]] || [[ "$GATEWAY_HEALTH" == *"status"* ]]; then
+  GATEWAY_HEALTH=$(docker exec vpn-gateway python3 -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8080/health', timeout=3).read().decode('utf-8'))" 2>/dev/null || \
+                   docker exec vpn-gateway python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8080/health', timeout=3).read().decode('utf-8'))" 2>&1)
+  
+  if [[ "$GATEWAY_HEALTH" == *"ok"* ]] || [[ "$GATEWAY_HEALTH" == *"status"* ]] || [[ "$GATEWAY_HEALTH" == *"healthy"* ]]; then
     printf_ok "Ядро шлюза внутри контейнера успешно отвечает на запросы!"
   else
     printf_err "Ядро шлюза внутри контейнера вернуло пустой или некорректный ответ."
     echo -e "   Получено: $GATEWAY_HEALTH"
+    echo -e "   ${C_YELLOW}💡 Подсказка:${C_RESET} если сайт снаружи открывается нормально, эту ошибку можно игнорировать."
   fi
 fi
 
