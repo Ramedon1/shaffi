@@ -1682,7 +1682,26 @@ PY
                 fi
             fi
 
-            if [[ "$config_changed" == "0" ]]; then
+            # Если конфиг не изменился, но используется временный самоподписанный сертификат,
+            # мы всё равно обязаны продолжить, чтобы перезапустить Nginx и выпустить настоящий сертификат Let's Encrypt!
+            local is_self_signed_pre=0
+            local fullchain_path="$(_vgw_certs_dir)/fullchain.pem"
+            if [[ -f "$fullchain_path" ]]; then
+                local cert_subject; cert_subject=$(openssl x509 -noout -subject -in "$fullchain_path" 2>/dev/null || echo "")
+                local cert_issuer; cert_issuer=$(openssl x509 -noout -issuer -in "$fullchain_path" 2>/dev/null || echo "")
+                local clean_subject; clean_subject=$(echo "${cert_subject}" | sed -E 's/^(subject|issuer)=\s*//')
+                local clean_issuer; clean_issuer=$(echo "${cert_issuer}" | sed -E 's/^(subject|issuer)=\s*//')
+                if [[ -n "${clean_subject}" && "${clean_subject}" == "${clean_issuer}" ]]; then
+                    is_self_signed_pre=1
+                fi
+                local sub_hash; sub_hash=$(openssl x509 -noout -subject_hash -in "$fullchain_path" 2>/dev/null || echo "1")
+                local iss_hash; iss_hash=$(openssl x509 -noout -issuer_hash -in "$fullchain_path" 2>/dev/null || echo "2")
+                if [[ "${sub_hash}" == "${iss_hash}" ]]; then
+                    is_self_signed_pre=1
+                fi
+            fi
+
+            if [[ "$config_changed" == "0" && "$is_self_signed_pre" -eq 0 ]]; then
                 ok "Конфигурация Nginx в ${conf_host} уже актуальна и не изменилась — перезапуск не требуется."
                 _vgw_nginx_injection_save "docker:conf.d" "$conf_host" "$domain"
                 return 0
@@ -1799,7 +1818,26 @@ PY
                 fi
             fi
 
-            if [[ "$config_changed" == "0" ]]; then
+            # Если конфиг не изменился, но используется временный самоподписанный сертификат,
+            # мы всё равно обязаны продолжить, чтобы перезапустить Nginx и выпустить настоящий сертификат Let's Encrypt!
+            local is_self_signed_pre=0
+            local fullchain_path="$(_vgw_certs_dir)/fullchain.pem"
+            if [[ -f "$fullchain_path" ]]; then
+                local cert_subject; cert_subject=$(openssl x509 -noout -subject -in "$fullchain_path" 2>/dev/null || echo "")
+                local cert_issuer; cert_issuer=$(openssl x509 -noout -issuer -in "$fullchain_path" 2>/dev/null || echo "")
+                local clean_subject; clean_subject=$(echo "${cert_subject}" | sed -E 's/^(subject|issuer)=\s*//')
+                local clean_issuer; clean_issuer=$(echo "${cert_issuer}" | sed -E 's/^(subject|issuer)=\s*//')
+                if [[ -n "${clean_subject}" && "${clean_subject}" == "${clean_issuer}" ]]; then
+                    is_self_signed_pre=1
+                fi
+                local sub_hash; sub_hash=$(openssl x509 -noout -subject_hash -in "$fullchain_path" 2>/dev/null || echo "1")
+                local iss_hash; iss_hash=$(openssl x509 -noout -issuer_hash -in "$fullchain_path" 2>/dev/null || echo "2")
+                if [[ "${sub_hash}" == "${iss_hash}" ]]; then
+                    is_self_signed_pre=1
+                fi
+            fi
+
+            if [[ "$config_changed" == "0" && "$is_self_signed_pre" -eq 0 ]]; then
                 ok "Конфигурация Nginx внутри контейнера ${cname} уже актуальна и не изменилась — перезапуск не требуется."
                 _vgw_nginx_injection_save "docker:nginx" "/etc/nginx/conf.d/80-bedolaga.conf" "$domain"
                 return 0

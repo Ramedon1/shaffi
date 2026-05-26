@@ -180,45 +180,152 @@ PY
   HTTPS_PORT="${CFG_VALUES[2]:-443}"
 
   if [[ -n "$DOMAIN" && "$DOMAIN" != "vpn.example.com" ]]; then
-    printf_info "Тестирую внешние порты прокси Nginx на хосте для домена '${DOMAIN}'..."
+    persist_inj="/etc/reshala-bedolaga/nginx_injection.env"
+    INJECTION_ACTIVE=0
+    if [[ -f "$persist_inj" ]]; then
+      INJECTION_ACTIVE=1
+    fi
 
-    # Проверка HTTP порта
-    printf_info "Проверка HTTP (запрос на порт ${HTTP_PORT} с Host: ${DOMAIN})..."
-    HTTP_RESP=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${DOMAIN}" http://127.0.0.1:${HTTP_PORT}/health --connect-timeout 3 2>&1)
-    HTTP_STATUS=$?
-    
-    if [[ $HTTP_STATUS -eq 0 ]]; then
-      printf_ok "HTTP-порт ${HTTP_PORT} активен. Ответ сервера: HTTP ${HTTP_RESP}"
+    if [[ $INJECTION_ACTIVE -eq 1 ]]; then
+      printf_info "Обнаружена интеграция с внешним прокси (Nginx Injection). Будет выполнена двухэтапная проверка."
+      
+      # ════ ЭТАП 4.1: Внутренний уровень (Docker) ════
+      printf_title "Этап 4.1: Внутренние порты Docker-контейнеров"
+      
+      # Проверка внутреннего HTTP
+      printf_info "Проверка HTTP (запрос на внутренний порт ${HTTP_PORT} с Host: ${DOMAIN})..."
+      HTTP_RESP=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${DOMAIN}" http://127.0.0.1:${HTTP_PORT}/health --connect-timeout 3 2>&1)
+      HTTP_STATUS=$?
+      if [[ $HTTP_STATUS -eq 0 ]]; then
+        printf_ok "Внутренний HTTP-порт ${HTTP_PORT} активен. Ответ сервера: HTTP ${HTTP_RESP}"
+      else
+        printf_err "Не удалось подключиться к внутреннему HTTP-порту ${HTTP_PORT}."
+        printf_info "Код ошибки curl: ${HTTP_STATUS} ($HTTP_RESP)"
+      fi
+
+      # Проверка внутреннего HTTPS
+      printf_info "Проверка HTTPS (запрос на внутренний порт ${HTTPS_PORT} с Host: ${DOMAIN})..."
+      HTTPS_RESP=$(curl -s -k -o /dev/null -w "%{http_code}" -H "Host: ${DOMAIN}" https://127.0.0.1:${HTTPS_PORT}/health --connect-timeout 3 2>&1)
+      HTTPS_STATUS=$?
+      if [[ $HTTPS_STATUS -eq 0 ]]; then
+        printf_ok "Внутренний HTTPS-порт ${HTTPS_PORT} активен (SSL пропущен). Ответ: HTTP ${HTTPS_RESP}"
+      else
+        printf_err "Не удалось подключиться к внутреннему HTTPS-порту ${HTTPS_PORT}."
+        printf_info "Код ошибки curl: ${HTTPS_STATUS} ($HTTPS_RESP)"
+      fi
+
+      # ════ ЭТАП 4.2: Внешний уровень (Публичный прокси) ════
+      printf_title "Этап 4.2: Внешние публичные порты прокси Nginx"
+      
+      # Проверка внешнего HTTP (порт 80)
+      printf_info "Проверка внешнего HTTP (порт 80 с Host: ${DOMAIN})..."
+      EXT_HTTP_RESP=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${DOMAIN}" http://127.0.0.1:80/health --connect-timeout 3 2>&1)
+      EXT_HTTP_STATUS=$?
+      if [[ $EXT_HTTP_STATUS -eq 0 ]]; then
+        printf_ok "Внешний HTTP-порт 80 активен. Ответ сервера: HTTP ${EXT_HTTP_RESP}"
+      else
+        printf_err "Не удалось подключиться к внешнему HTTP-порту 80."
+        printf_info "Код ошибки curl: ${EXT_HTTP_STATUS} ($EXT_HTTP_RESP)"
+      fi
+
+      # Проверка внешнего HTTPS (порт 443) без проверки сертификата (-k)
+      printf_info "Проверка внешнего HTTPS (порт 443, SSL пропущен)..."
+      EXT_HTTPS_RESP=$(curl -s -k -o /dev/null -w "%{http_code}" -H "Host: ${DOMAIN}" https://127.0.0.1:443/health --connect-timeout 3 2>&1)
+      EXT_HTTPS_STATUS=$?
+      if [[ $EXT_HTTPS_STATUS -eq 0 ]]; then
+        printf_ok "Внешний HTTPS-порт 443 активен (SSL пропущен). Ответ: HTTP ${EXT_HTTPS_RESP}"
+      else
+        printf_err "Не удалось подключиться к внешнему HTTPS-порту 443."
+        printf_info "Код ошибки curl: ${EXT_HTTPS_STATUS} ($EXT_HTTPS_RESP)"
+      fi
+
+      # Проверка валидности SSL-сертификата на внешнем HTTPS (порт 443)
+      if [[ $EXT_HTTPS_STATUS -eq 0 ]]; then
+        printf_info "Проверяю доверие и валидность SSL-сертификата на внешнем HTTPS-порту..."
+        # Запрос без флага -k (с проверкой SSL)
+        SSL_RESP=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${DOMAIN}" https://127.0.0.1:443/health --connect-timeout 3 2>&1)
+        SSL_STATUS=$?
+        if [[ $SSL_STATUS -eq 0 ]]; then
+          printf_ok "SSL-сертификат успешно прошел проверку доверия!"
+        else
+          printf_err "Ошибка валидации SSL-сертификата (код curl: ${SSL_STATUS})."
+          if [[ $SSL_STATUS -eq 60 || $SSL_STATUS -eq 51 ]]; then
+            echo -e "   ${C_YELLOW}💡 Подсказка:${C_RESET} Скорее всего, используется самоподписанный (mock) сертификат"
+            echo -e "                 или имя домена не совпадает с сертификатом."
+            echo -e "                 Запустите пункт [6] меню Решалы для выпуска реального сертификата Let's Encrypt!"
+          else
+            echo -e "   ${C_YELLOW}💡 Подсказка:${C_RESET} Ошибка SSL: $SSL_RESP"
+          fi
+        fi
+      fi
+
+      # Рекомендации при ошибках в режиме интеграции
+      if [[ $EXT_HTTP_STATUS -ne 0 ]] || [[ $EXT_HTTPS_STATUS -ne 0 ]]; then
+        echo -e "\n${C_YELLOW}${C_BOLD}💡 Рекомендация по решению внешней доступности:${C_RESET}"
+        echo "   Внутренние порты шлюза работают, но внешний прокси Nginx на портах 80/443 не отвечает."
+        echo "   1. Убедитесь, что внешний контейнер Nginx (или служба Nginx на хосте) запущен."
+        echo "   2. Проверьте, что брандмауэр (например, UFW) не блокирует порты 80 и 443:"
+        echo "      ufw status"
+        echo "   3. Если домен '${DOMAIN}' только что куплен, DNS A-запись могла ещё не обновиться."
+        echo "   4. Проверьте правильность конфигурации проксирования внешнего Nginx."
+      fi
+
     else
-      printf_err "Не удалось подключиться к HTTP-порту ${HTTP_PORT}."
-      printf_info "Код ошибки curl: ${HTTP_STATUS} ($HTTP_RESP)"
-    fi
+      # ════ Стандартный автономный режим (Standalone) ════
+      printf_info "Используется стандартный автономный режим (Standalone)."
+      
+      # Проверка HTTP порта
+      printf_info "Проверка HTTP (запрос на порт ${HTTP_PORT} с Host: ${DOMAIN})..."
+      HTTP_RESP=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${DOMAIN}" http://127.0.0.1:${HTTP_PORT}/health --connect-timeout 3 2>&1)
+      HTTP_STATUS=$?
+      
+      if [[ $HTTP_STATUS -eq 0 ]]; then
+        printf_ok "HTTP-порт ${HTTP_PORT} активен. Ответ сервера: HTTP ${HTTP_RESP}"
+      else
+        printf_err "Не удалось подключиться к HTTP-порту ${HTTP_PORT}."
+        printf_info "Код ошибки curl: ${HTTP_STATUS} ($HTTP_RESP)"
+      fi
 
-    # Проверка HTTPS порта
-    printf_info "Проверка HTTPS (запрос на порт ${HTTPS_PORT} с Host: ${DOMAIN})..."
-    HTTPS_RESP=$(curl -s -k -o /dev/null -w "%{http_code}" -H "Host: ${DOMAIN}" https://127.0.0.1:${HTTPS_PORT}/health --connect-timeout 3 2>&1)
-    HTTPS_STATUS=$?
+      # Проверка HTTPS порта (SSL пропущен)
+      printf_info "Проверка HTTPS (запрос на порт ${HTTPS_PORT} с Host: ${DOMAIN}, SSL пропущен)..."
+      HTTPS_RESP=$(curl -s -k -o /dev/null -w "%{http_code}" -H "Host: ${DOMAIN}" https://127.0.0.1:${HTTPS_PORT}/health --connect-timeout 3 2>&1)
+      HTTPS_STATUS=$?
 
-    if [[ $HTTPS_STATUS -eq 0 ]]; then
-      printf_ok "HTTPS-порт ${HTTPS_PORT} активен (проверка SSL пропущена). Ответ сервера: HTTP ${HTTPS_RESP}"
-    else
-      printf_err "Не удалось подключиться к HTTPS-порту ${HTTPS_PORT}."
-      printf_info "Код ошибки curl: ${HTTPS_STATUS} ($HTTPS_RESP)"
-    fi
+      if [[ $HTTPS_STATUS -eq 0 ]]; then
+        printf_ok "HTTPS-порт ${HTTPS_PORT} активен. Ответ сервера: HTTP ${HTTPS_RESP}"
+        
+        # Проверка SSL
+        printf_info "Проверяю доверие и валидность SSL-сертификата..."
+        SSL_RESP=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: ${DOMAIN}" https://127.0.0.1:${HTTPS_PORT}/health --connect-timeout 3 2>&1)
+        SSL_STATUS=$?
+        if [[ $SSL_STATUS -eq 0 ]]; then
+          printf_ok "SSL-сертификат успешно прошел проверку доверия!"
+        else
+          printf_err "Ошибка валидации SSL-сертификата (код curl: ${SSL_STATUS})."
+          if [[ $SSL_STATUS -eq 60 || $SSL_STATUS -eq 51 ]]; then
+            echo -e "   ${C_YELLOW}💡 Подсказка:${C_RESET} Используется самоподписанный (mock) сертификат."
+            echo -e "                 Запустите пункт [6] меню Решалы для выпуска реального сертификата Let's Encrypt!"
+          else
+            echo -e "   ${C_YELLOW}💡 Подсказка:${C_RESET} Ошибка SSL: $SSL_RESP"
+          fi
+        fi
+      else
+        printf_err "Не удалось подключиться к HTTPS-порту ${HTTPS_PORT}."
+        printf_info "Код ошибки curl: ${HTTPS_STATUS} ($HTTPS_RESP)"
+      fi
 
-    # Общие рекомендации по сетевым ошибкам
-    if [[ $HTTP_STATUS -ne 0 ]] || [[ $HTTPS_STATUS -ne 0 ]]; then
-      echo -e "\n${C_YELLOW}${C_BOLD}💡 Рекомендация по решению:${C_RESET}"
-      echo "   Один из внешних портов проксирования не отвечает."
-      echo "   1. Убедитесь, что порты ${HTTP_PORT} и ${HTTPS_PORT} не заняты другими веб-серверами"
-      echo "      (например, Apache или другим Nginx на хосте). Проверить занятость портов:"
-      echo "      netstat -tulpn | grep -E '${HTTP_PORT}|${HTTPS_PORT}'"
-      echo "   2. Проверьте логи Nginx:"
-      echo "      В меню Решалы выберите пункт 4 (Статус и журналы)"
-      echo "   3. Если домен '${DOMAIN}' только что куплен, DNS A-запись могла ещё не обновиться."
+      # Общие рекомендации по сетевым ошибкам (Standalone)
+      if [[ $HTTP_STATUS -ne 0 ]] || [[ $HTTPS_STATUS -ne 0 ]]; then
+        echo -e "\n${C_YELLOW}${C_BOLD}💡 Рекомендация по решению:${C_RESET}"
+        echo "   Один из внешних портов проксирования не отвечает."
+        echo "   1. Убедитесь, что порты ${HTTP_PORT} и ${HTTPS_PORT} не заняты другими веб-серверами"
+        echo "      (например, Apache или другим Nginx на хосте). Проверить занятость портов:"
+        echo "      netstat -tulpn | grep -E '${HTTP_PORT}|${HTTPS_PORT}'"
+        echo "   2. Проверьте логи Nginx:"
+        echo "      В меню Решалы выберите пункт 4 (Статус и журналы)"
+        echo "   3. Если домен '${DOMAIN}' только что куплен, DNS A-запись могла ещё не обновиться."
+      fi
     fi
-  else
-    printf_warn "Домен лендинга не настроен. Проверка внешних портов пропущена."
   fi
 else
   printf_warn "Файл config/gateway.yml не найден. Проверка внешних портов пропущена."
