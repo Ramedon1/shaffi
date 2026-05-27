@@ -1,8 +1,8 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-# ╨ж╨▓╨╡╤В╨░ ╨┤╨╗╤П ╨▓╤Л╨▓╨╛╨┤╨░
+# Цвета для вывода
 C_RED="\e[31m"
 C_GREEN="\e[32m"
 C_YELLOW="\e[33m"
@@ -13,79 +13,79 @@ C_GRAY="\e[90m"
 C_BOLD="\e[1m"
 C_RESET="\e[0m"
 
-printf_title() { printf "\n%bтХРтХРтХР %b тХРтХРтХР%b\n" "${C_CYAN}" "$*" "${C_RESET}"; }
-printf_ok()    { printf "%b[тЬУ] %b%b\n" "${C_GREEN}" "$*" "${C_RESET}"; }
+printf_title() { printf "\n%b═══ %b ═══%b\n" "${C_CYAN}" "$*" "${C_RESET}"; }
+printf_ok()    { printf "%b[✓] %b%b\n" "${C_GREEN}" "$*" "${C_RESET}"; }
 printf_warn()  { printf "%b[!] %b%b\n" "${C_YELLOW}" "$*" "${C_RESET}"; }
-printf_err()   { printf "%b[тЬЧ] %b%b\n" "${C_RED}" "$*" "${C_RESET}"; }
+printf_err()   { printf "%b[✗] %b%b\n" "${C_RED}" "$*" "${C_RESET}"; }
 printf_info()  { printf "%b[i] %b%b\n" "${C_GRAY}" "$*" "${C_RESET}"; }
 
-echo -e "${C_CYAN}${C_BOLD}тХФтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХЧ${C_RESET}"
-echo -e "${C_CYAN}${C_BOLD}тХС${C_RESET}  ${C_YELLOW}${C_BOLD}ЁЯФм  ╨Я╨а╨Ю╨д╨Х╨б╨б╨Ш╨Ю╨Э╨Р╨Ы╨м╨Э╨Р╨п ╨Ф╨Ш╨Р╨У╨Э╨Ю╨б╨в╨Ш╨Ъ╨Р: ЁЯЫбя╕П  ╨Ь╨Р╨б╨Ъ╨Ш╨а╨Ю╨Т╨й╨Ш╨Ъ ╨Ы╨Х╨Э╨Ф╨Ш╨Э╨У╨Р BEDOLAGA${C_RESET}   ${C_CYAN}${C_BOLD}тХС${C_RESET}"
-echo -e "${C_CYAN}${C_BOLD}тХЪтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХЭ${C_RESET}"
+echo -e "${C_CYAN}${C_BOLD}╔══════════════════════════════════════════════════════════════════════════════╗${C_RESET}"
+echo -e "${C_CYAN}${C_BOLD}║${C_RESET}  ${C_YELLOW}${C_BOLD}🔬  ПРОФЕССИОНАЛЬНАЯ ДИАГНОСТИКА: 🛡️  МАСКИРОВЩИК ЛЕНДИНГА BEDOLAGA${C_RESET}   ${C_CYAN}${C_BOLD}║${C_RESET}"
+echo -e "${C_CYAN}${C_BOLD}╚══════════════════════════════════════════════════════════════════════════════╝${C_RESET}"
 
-# ╨и╨░╨│ 0: ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╨╕ ╤Б╨╛╨╖╨┤╨░╨╜╨╕╨╡ ╨▓╨╕╤А╤В╤Г╨░╨╗╤М╨╜╨╛╨│╨╛ ╨╛╨║╤А╤Г╨╢╨╡╨╜╨╕╤П
+# Шаг 0: Проверка и создание виртуального окружения
 if [[ ! -x ".venv/bin/python" ]]; then
-  printf_warn "╨Т╨╕╤А╤В╤Г╨░╨╗╤М╨╜╨╛╨╡ ╨╛╨║╤А╤Г╨╢╨╡╨╜╨╕╨╡ .venv ╨╜╨╡ ╨╜╨░╨╣╨┤╨╡╨╜╨╛. ╨б╨╛╨╖╨┤╨░╤О ╨░╨▓╤В╨╛╨╝╨░╤В╨╕╤З╨╡╤Б╨║╨╕..."
+  printf_warn "Виртуальное окружение .venv не найдено. Создаю автоматически..."
   if ! python3 -m venv .venv 2>/dev/null; then
-    printf_err "╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╤Б╨╛╨╖╨┤╨░╤В╤М .venv. ╨Я╨╛╨╢╨░╨╗╤Г╨╣╤Б╤В╨░, ╤Г╤Б╤В╨░╨╜╨╛╨▓╨╕╤В╨╡ ╨┐╨░╨║╨╡╤В python3-venv:"
+    printf_err "Не удалось создать .venv. Пожалуйста, установите пакет python3-venv:"
     echo "    apt update && apt install -y python3-venv"
     exit 1
   fi
-  printf_info "╨г╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╤О ╨╜╨╡╨╛╨▒╤Е╨╛╨┤╨╕╨╝╤Л╨╡ ╨╖╨░╨▓╨╕╤Б╨╕╨╝╨╛╤Б╤В╨╕ ╨╕╨╖ requirements.txt..."
+  printf_info "Устанавливаю необходимые зависимости из requirements.txt..."
   if ! .venv/bin/pip install --quiet -r requirements.txt 2>/dev/null; then
-    printf_err "╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╤Г╤Б╤В╨░╨╜╨╛╨▓╨╕╤В╤М ╨╖╨░╨▓╨╕╤Б╨╕╨╝╨╛╤Б╤В╨╕ ╤З╨╡╤А╨╡╨╖ pip."
-    echo "    ╨Я╤А╨╛╨▓╨╡╤А╤М╤В╨╡ ╨┐╨╛╨┤╨║╨╗╤О╤З╨╡╨╜╨╕╨╡ ╨║ ╨╕╨╜╤В╨╡╤А╨╜╨╡╤В╤Г ╨╕╨╗╨╕ ╨┐╤А╨░╨▓╨░ ╨┤╨╛╤Б╤В╤Г╨┐╨░."
+    printf_err "Не удалось установить зависимости через pip."
+    echo "    Проверьте подключение к интернету или права доступа."
     exit 1
   fi
-  printf_ok "╨Т╨╕╤А╤В╤Г╨░╨╗╤М╨╜╨╛╨╡ ╨╛╨║╤А╤Г╨╢╨╡╨╜╨╕╨╡ ╤Г╤Б╨┐╨╡╤И╨╜╨╛ ╨┐╨╛╨┤╨│╨╛╤В╨╛╨▓╨╗╨╡╨╜╨╛."
+  printf_ok "Виртуальное окружение успешно подготовлено."
 fi
 
 PYTHON=".venv/bin/python"
 
-# ╨и╨░╨│ 1: ╨Ч╨░╨┐╤Г╤Б╨║ ╨░╨▓╤В╨╛╨╝╨░╤В╨╕╤З╨╡╤Б╨║╨╕╤Е ╤В╨╡╤Б╤В╨╛╨▓ (pytest)
-printf_title "╨и╨░╨│ 1: ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╤Ж╨╡╨╗╨╛╤Б╤В╨╜╨╛╤Б╤В╨╕ ╨╕ ╨╗╨╛╨│╨╕╨║╨╕ ╨║╨╛╨┤╨░ (pytest)"
-printf_info "╨Ч╨░╨┐╤Г╤Б╨║╨░╤О 12 ╨░╨▓╤В╨╛╨╝╨░╤В╨╕╤З╨╡╤Б╨║╨╕╤Е ╤О╨╜╨╕╤В-╤В╨╡╤Б╤В╨╛╨▓..."
+# Шаг 1: Запуск автоматических тестов (pytest)
+printf_title "Шаг 1: Проверка целостности и логики кода (pytest)"
+printf_info "Запускаю 12 автоматических юнит-тестов..."
 
 # Run pytest but hide warnings to keep it readable, showing only failures/successes
 TEST_OUTPUT=$($PYTHON -m pytest -q --tb=short -W ignore 2>&1)
 TEST_STATUS=$?
 
 if [[ $TEST_STATUS -eq 0 ]]; then
-  printf_ok "╨Т╤Б╨╡ ╤О╨╜╨╕╤В-╤В╨╡╤Б╤В╤Л ╤Г╤Б╨┐╨╡╤И╨╜╨╛ ╨┐╤А╨╛╨╣╨┤╨╡╨╜╤Л! (12 passed)"
+  printf_ok "Все юнит-тесты успешно пройдены! (12 passed)"
 else
-  printf_err "╨Ю╨▒╨╜╨░╤А╤Г╨╢╨╡╨╜╤Л ╨╛╤И╨╕╨▒╨║╨╕ ╨▓ ╨╗╨╛╨│╨╕╨║╨╡ ╨╕╨╗╨╕ ╨║╨╛╨╜╤Д╨╕╨│╤Г╤А╨░╤Ж╨╕╨╕ ╨║╨╛╨┤╨░!"
-  echo -e "\n${C_RED}${C_BOLD}╨Т╤Л╨▓╨╛╨┤ ╤В╨╡╤Б╤В╨╛╨▓:${C_RESET}"
+  printf_err "Обнаружены ошибки в логике или конфигурации кода!"
+  echo -e "\n${C_RED}${C_BOLD}Вывод тестов:${C_RESET}"
   echo "$TEST_OUTPUT"
-  echo -e "\n${C_YELLOW}${C_BOLD}ЁЯТб ╨а╨╡╨║╨╛╨╝╨╡╨╜╨┤╨░╤Ж╨╕╤П ╨┐╨╛ ╤А╨╡╤И╨╡╨╜╨╕╤О:${C_RESET}"
-  echo "   1. ╨Я╤А╨╛╨▓╨╡╤А╤М╤В╨╡ ╨┐╤А╨░╨▓╨╕╨╗╤М╨╜╨╛╤Б╤В╤М ╨╖╨░╨┐╨╛╨╗╨╜╨╡╨╜╨╕╤П config/gateway.yml."
-  echo "      ╨б╨╕╨╜╤В╨░╨║╤Б╨╕╤Б YAML ╨╜╨╡ ╨┤╨╛╨╗╨╢╨╡╨╜ ╤Б╨╛╨┤╨╡╤А╨╢╨░╤В╤М ╨╛╤И╨╕╨▒╨╛╨║ ╤А╨░╨╖╨╝╨╡╤В╨║╨╕."
-  echo "   2. ╨Х╤Б╨╗╨╕ ╨▓╤Л ╨╕╨╖╨╝╨╡╨╜╤П╨╗╨╕ ╤Д╨░╨╣╨╗╤Л ╨▓ ╨┐╨░╨┐╨║╨╡ app/, ╨▓╨╛╨╖╨╝╨╛╨╢╨╜╨╛, ╨▒╤Л╨╗╨░ ╨┤╨╛╨┐╤Г╤Й╨╡╨╜╨░ ╨╛╤И╨╕╨▒╨║╨░."
-  echo "      ╨Т╤Л ╨╝╨╛╨╢╨╡╤В╨╡ ╨▓╨╡╤А╨╜╤Г╤В╤М ╨╛╤А╨╕╨│╨╕╨╜╨░╨╗╤М╨╜╤Л╨╣ ╨║╨╛╨┤ ╨║╨╛╨╝╨░╨╜╨┤╤Л ╤З╨╡╤А╨╡╨╖ git:"
+  echo -e "\n${C_YELLOW}${C_BOLD}💡 Рекомендация по решению:${C_RESET}"
+  echo "   1. Проверьте правильность заполнения config/gateway.yml."
+  echo "      Синтаксис YAML не должен содержать ошибок разметки."
+  echo "   2. Если вы изменяли файлы в папке app/, возможно, была допущена ошибка."
+  echo "      Вы можете вернуть оригинальный код команды через git:"
   echo "      git checkout app/"
-  echo "   3. ╨Я╨╛╨┐╤А╨╛╨▒╤Г╨╣╤В╨╡ ╤Б╨▒╤А╨╛╤Б╨╕╤В╤М ╨║╨╛╨╜╤Д╨╕╨│╤Г╤А╨░╤Ж╨╕╤О ╨╕╨╗╨╕ ╨╖╨░╨┐╤Г╤Б╤В╨╕╤В╤М ╨┐╨╡╤А╨╡╨╜╨░╤Б╤В╤А╨╛╨╣╨║╤Г ╨╕╨╖ ╨╝╨╡╨╜╤О ╨а╨╡╤И╨░╨╗╤Л."
+  echo "   3. Попробуйте сбросить конфигурацию или запустить перенастройку из меню Решалы."
 fi
 
-# ╨и╨░╨│ 2: ╨Ъ╨╛╨╝╨┐╨╕╨╗╤П╤Ж╨╕╤П ╤Д╨░╨╣╨╗╨╛╨▓ Python (╨б╨╕╨╜╤В╨░╨║╤Б╨╕╤З╨╡╤Б╨║╨╕╨╣ ╨░╨╜╨░╨╗╨╕╨╖)
-printf_title "╨и╨░╨│ 2: ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╤Б╨╕╨╜╤В╨░╨║╤Б╨╕╤Б╨░ ╤Д╨░╨╣╨╗╨╛╨▓ ╨┐╤А╨╕╨╗╨╛╨╢╨╡╨╜╨╕╤П (compileall)"
-printf_info "╨Р╨╜╨░╨╗╨╕╨╖╨╕╤А╤Г╤О ╤Б╨╕╨╜╤В╨░╨║╤Б╨╕╤Б ╤Д╨░╨╣╨╗╨╛╨▓ ╨▓ ╨┐╨░╨┐╨║╨╡ app/..."
+# Шаг 2: Компиляция файлов Python (Синтаксический анализ)
+printf_title "Шаг 2: Проверка синтаксиса файлов приложения (compileall)"
+printf_info "Анализирую синтаксис файлов в папке app/..."
 
 COMP_OUTPUT=$($PYTHON -m compileall app 2>&1)
 COMP_STATUS=$?
 
 if [[ $COMP_STATUS -eq 1 ]] || echo "$COMP_OUTPUT" | grep -q "*** Error"; then
-  printf_err "╨Ю╨▒╨╜╨░╤А╤Г╨╢╨╡╨╜╨░ ╤Б╨╕╨╜╤В╨░╨║╤Б╨╕╤З╨╡╤Б╨║╨░╤П ╨╛╤И╨╕╨▒╨║╨░ ╨▓ ╨║╨╛╨┤╨╡ ╨┐╤А╨╕╨╗╨╛╨╢╨╡╨╜╨╕╤П!"
-  echo -e "\n${C_RED}${C_BOLD}╨Т╤Л╨▓╨╛╨┤ ╨║╨╛╨╝╨┐╨╕╨╗╤П╤В╨╛╤А╨░:${C_RESET}"
+  printf_err "Обнаружена синтаксическая ошибка в коде приложения!"
+  echo -e "\n${C_RED}${C_BOLD}Вывод компилятора:${C_RESET}"
   echo "$COMP_OUTPUT"
-  echo -e "\n${C_YELLOW}${C_BOLD}ЁЯТб ╨а╨╡╨║╨╛╨╝╨╡╨╜╨┤╨░╤Ж╨╕╤П ╨┐╨╛ ╤А╨╡╤И╨╡╨╜╨╕╤О:${C_RESET}"
-  echo "   ╨Т ╨╛╨┤╨╜╨╛╨╝ ╨╕╨╖ ╤Д╨░╨╣╨╗╨╛╨▓ Python ╨▓ ╨┐╨░╨┐╨║╨╡ app/ ╨┤╨╛╨┐╤Г╤Й╨╡╨╜╨░ ╤Б╨╕╨╜╤В╨░╨║╤Б╨╕╤З╨╡╤Б╨║╨░╤П ╨╛╤И╨╕╨▒╨║╨░."
-  echo "   ╨Ш╨╖╤Г╤З╨╕╤В╨╡ ╨▓╤Л╨▓╨╛╨┤ ╨▓╤Л╤И╨╡, ╨╛╤В╨║╤А╨╛╨╣╤В╨╡ ╤Г╨║╨░╨╖╨░╨╜╨╜╤Л╨╣ ╤Д╨░╨╣╨╗ ╨╕ ╨╕╤Б╨┐╤А╨░╨▓╤М╤В╨╡ ╨╛╨┐╨╡╤З╨░╤В╨║╤Г."
-  echo "   ╨Ф╨╗╤П ╨┐╨╛╨╗╨╜╨╛╨│╨╛ ╤Б╨▒╤А╨╛╤Б╨░ ╨╕╨╖╨╝╨╡╨╜╨╡╨╜╨╕╨╣ ╨║╨╛╨┤╨░ ╨▓╤Л╨┐╨╛╨╗╨╜╨╕╤В╨╡: git checkout app/"
+  echo -e "\n${C_YELLOW}${C_BOLD}💡 Рекомендация по решению:${C_RESET}"
+  echo "   В одном из файлов Python в папке app/ допущена синтаксическая ошибка."
+  echo "   Изучите вывод выше, откройте указанный файл и исправьте опечатку."
+  echo "   Для полного сброса изменений кода выполните: git checkout app/"
 else
-  printf_ok "╨б╨╕╨╜╤В╨░╨║╤Б╨╕╤З╨╡╤Б╨║╨╕╤Е ╨╛╤И╨╕╨▒╨╛╨║ ╨▓ ╤Д╨░╨╣╨╗╨░╤Е ╨┐╤А╨╕╨╗╨╛╨╢╨╡╨╜╨╕╤П ╨╜╨╡ ╨╛╨▒╨╜╨░╤А╤Г╨╢╨╡╨╜╨╛."
+  printf_ok "Синтаксических ошибок в файлах приложения не обнаружено."
 fi
 
-# ╨и╨░╨│ 3: ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╤Б╤В╨░╤В╤Г╤Б╨░ Docker ╨║╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А╨╛╨▓
-printf_title "╨и╨░╨│ 3: ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╤Б╨╛╤Б╤В╨╛╤П╨╜╨╕╤П Docker-╨║╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А╨╛╨▓ ╤Б╤В╨╡╨║╨░"
+# Шаг 3: Проверка статуса Docker контейнеров
+printf_title "Шаг 3: Проверка состояния Docker-контейнеров стека"
 
 GW_RUNNING=0
 NX_RUNNING=0
@@ -93,16 +93,16 @@ NX_RUNNING=0
 if command -v docker &>/dev/null; then
   # vpn-gateway
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "vpn-gateway"; then
-    printf_ok "╨Ъ╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А vpn-gateway: ╨Ч╨Р╨Я╨г╨й╨Х╨Э"
+    printf_ok "Контейнер vpn-gateway: ЗАПУЩЕН"
     GW_RUNNING=1
   else
-    printf_err "╨Ъ╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А vpn-gateway: ╨Ю╨б╨в╨Р╨Э╨Ю╨Т╨Ы╨Х╨Э"
+    printf_err "Контейнер vpn-gateway: ОСТАНОВЛЕН"
   fi
 
-  # nginx proxy (vpn-edge-nginx ╨╕╨╗╨╕ ╨▓╨╜╨╡╨┤╤А╤С╨╜╨╜╤Л╨╣)
+  # nginx proxy (vpn-edge-nginx или внедрённый)
   local_nginx_active=0
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "vpn-edge-nginx"; then
-    printf_ok "╨Ъ╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А vpn-edge-nginx (╨▓╤Б╤В╤А╨╛╨╡╨╜╨╜╤Л╨╣ ╨┐╤А╨╛╨║╤Б╨╕): ╨Ч╨Р╨Я╨г╨й╨Х╨Э"
+    printf_ok "Контейнер vpn-edge-nginx (встроенный прокси): ЗАПУЩЕН"
     NX_RUNNING=1
     local_nginx_active=1
   fi
@@ -112,34 +112,74 @@ if command -v docker &>/dev/null; then
     saved_type=$(grep '^NGINX_TYPE=' "$persist_inj" | cut -d= -f2-)
     if [[ "$saved_type" == "host:nginx" ]]; then
       if systemctl is-active --quiet nginx 2>/dev/null || service nginx status &>/dev/null; then
-        printf_ok "╨б╨╗╤Г╨╢╨▒╨░ nginx (╤Е╨╛╤Б╤В╨╛╨▓╨╛╨╣ ╨┐╤А╨╛╨║╤Б╨╕): ╨а╨Р╨С╨Ю╨в╨Р╨Х╨в"
+        printf_ok "Служба nginx (хостовой прокси): РАБОТАЕТ"
         NX_RUNNING=1
       else
-        printf_err "╨б╨╗╤Г╨╢╨▒╨░ nginx (╤Е╨╛╤Б╤В╨╛╨▓╨╛╨╣ ╨┐╤А╨╛╨║╤Б╨╕): ╨Ю╨б╨в╨Р╨Э╨Ю╨Т╨Ы╨Х╨Э╨Р"
+        printf_err "Служба nginx (хостовой прокси): ОСТАНОВЛЕНА"
       fi
     elif [[ "$saved_type" == docker:* ]]; then
       cname=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i nginx | grep -v vpn-edge-nginx | head -1)
       if [[ -n "$cname" ]]; then
-        printf_ok "╨Ъ╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А ${cname} (╨▓╨╜╨╡╤И╨╜╨╕╨╣ ╨┐╤А╨╛╨║╤Б╨╕): ╨Ч╨Р╨Я╨г╨й╨Х╨Э"
+        printf_ok "Контейнер ${cname} (внешний прокси): ЗАПУЩЕН"
         NX_RUNNING=1
       else
-        printf_err "╨Т╨╜╨╡╤И╨╜╨╕╨╣ ╨║╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А Nginx (╤Г╨║╨░╨╖╨░╨╜╨╜╤Л╨╣ ╨▓ nginx_injection.env): ╨Ю╨б╨в╨Р╨Э╨Ю╨Т╨Ы╨Х╨Э"
+        printf_err "Внешний контейнер Nginx (указанный в nginx_injection.env): ОСТАНОВЛЕН"
       fi
     fi
   elif [[ $local_nginx_active -eq 0 ]]; then
-    printf_err "╨Ъ╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А vpn-edge-nginx (╨▓╤Б╤В╤А╨╛╨╡╨╜╨╜╤Л╨╣ ╨┐╤А╨╛╨║╤Б╨╕): ╨Ю╨б╨в╨Р╨Э╨Ю╨Т╨Ы╨Х╨Э"
+    printf_err "Контейнер vpn-edge-nginx (встроенный прокси): ОСТАНОВЛЕН"
   fi
 else
-  printf_err "╨г╤В╨╕╨╗╨╕╤В╨░ docker ╨╜╨╡ ╨╜╨░╨╣╨┤╨╡╨╜╨░ ╨╜╨░ ╤Н╤В╨╛╨╝ ╤Б╨╡╤А╨▓╨╡╤А╨╡!"
+  printf_err "Утилита docker не найдена на этом сервере!"
 fi
 
 if [[ $GW_RUNNING -eq 0 ]]; then
-  echo -e "\n${C_YELLOW}${C_BOLD}ЁЯТб ╨а╨╡╨║╨╛╨╝╨╡╨╜╨┤╨░╤Ж╨╕╤П ╨┐╨╛ ╤А╨╡╤И╨╡╨╜╨╕╤О:${C_RESET}"
-  echo "   ╨Ъ╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А ╤П╨┤╤А╨░ ╤И╨╗╤О╨╖╨░ ╨╛╤Б╤В╨░╨╜╨╛╨▓╨╗╨╡╨╜. ╨Ф╨╗╤П ╨╡╨│╨╛ ╨╖╨░╨┐╤Г╤Б╨║╨░ ╨▓╤Л╨┐╨╛╨╗╨╜╨╕╤В╨╡:"
-  echo "   ╨Я╤Г╨╜╨║╤В 3 ╨╝╨╡╨╜╤О ╨а╨╡╤И╨░╨╗╤Л (╨Я╨╡╤А╨╡╨╖╨░╨┐╤Г╤Б╨║ ╤Б╤В╨╡╨║╨░)"
+  echo -e "\n${C_YELLOW}${C_BOLD}💡 Рекомендация по решению:${C_RESET}"
+  echo "   Контейнер ядра шлюза остановлен. Для его запуска выполните:"
+  echo "   Пункт 3 меню Решалы (Перезапуск стека) или Пункт 1/2 (Мастер настройки)."
 fi
 
-if [[ -n "$DOMAIN" && "$DOMAIN" != "vpn.example.com" ]]; then
+# Шаг 4: Тест сетевого отклика веб-сервера (Smoke Test)
+printf_title "Шаг 4: Тестирование сетевых ответов шлюза (HTTP/HTTPS)"
+
+# Пробуем проверить локальный отклик ядра шлюза внутри контейнера (используем встроенный Python, т.к. curl/wget могут отсутствовать в slim-образе)
+if [[ $GW_RUNNING -eq 1 ]]; then
+  printf_info "Проверяю отклик ядра vpn-gateway внутри контейнера (порт 8080)..."
+  GATEWAY_HEALTH=$(docker exec vpn-gateway python3 -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8080/health', timeout=3).read().decode('utf-8'))" 2>/dev/null || \
+                   docker exec vpn-gateway python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8080/health', timeout=3).read().decode('utf-8'))" 2>&1)
+  
+  if [[ "$GATEWAY_HEALTH" == *"ok"* ]] || [[ "$GATEWAY_HEALTH" == *"status"* ]] || [[ "$GATEWAY_HEALTH" == *"healthy"* ]]; then
+    printf_ok "Ядро шлюза внутри контейнера успешно отвечает на запросы!"
+  else
+    printf_err "Ядро шлюза внутри контейнера вернуло пустой или некорректный ответ."
+    echo -e "   Получено: $GATEWAY_HEALTH"
+    echo -e "   ${C_YELLOW}💡 Подсказка:${C_RESET} если сайт снаружи открывается нормально, эту ошибку можно игнорировать."
+  fi
+fi
+
+# Читаем домен и порты для проверки проксирования
+if [[ -f "config/gateway.yml" ]]; then
+  readarray -t CFG_VALUES < <(CFG_FILE="config/gateway.yml" "${PYTHON}" - <<'PY'
+import os, yaml
+from pathlib import Path
+try:
+    cfg = yaml.safe_load(Path(os.environ["CFG_FILE"]).read_text(encoding="utf-8")) or {}
+    quick = cfg.get("quick_setup", {})
+    edge = cfg.get("edge", {})
+    print(quick.get("public_domain") or "")
+    print(str(edge.get("http_port", 80)))
+    print(str(edge.get("https_port", 443)))
+except:
+    print("")
+    print("80")
+    print("443")
+PY
+)
+  DOMAIN="${CFG_VALUES[0]:-}"
+  HTTP_PORT="${CFG_VALUES[1]:-80}"
+  HTTPS_PORT="${CFG_VALUES[2]:-443}"
+
+  if [[ -n "$DOMAIN" && "$DOMAIN" != "vpn.example.com" ]]; then
     persist_inj="/etc/reshala-bedolaga/nginx_injection.env"
     INJECTION_ACTIVE=0
     if [[ -f "$persist_inj" ]]; then
@@ -147,213 +187,148 @@ if [[ -n "$DOMAIN" && "$DOMAIN" != "vpn.example.com" ]]; then
     fi
 
     if [[ $INJECTION_ACTIVE -eq 1 ]]; then
-      printf_info "╨Ю╨▒╨╜╨░╤А╤Г╨╢╨╡╨╜╨░ ╨╕╨╜╤В╨╡╨│╤А╨░╤Ж╨╕╤П ╤Б ╨▓╨╜╨╡╤И╨╜╨╕╨╝ ╨┐╤А╨╛╨║╤Б╨╕ (Nginx Injection). ╨С╤Г╨┤╨╡╤В ╨▓╤Л╨┐╨╛╨╗╨╜╨╡╨╜╨░ ╨┤╨▓╤Г╤Е╤Н╤В╨░╨┐╨╜╨░╤П ╨┐╤А╨╛╨▓╨╡╤А╨║╨░."
+      printf_info "Обнаружена интеграция с внешним прокси (Nginx Injection). Будет выполнена двухэтапная проверка."
       
-      # тХРтХРтХРтХР ╨н╨в╨Р╨Я 4.1: ╨Т╨╜╤Г╤В╤А╨╡╨╜╨╜╨╕╨╣ ╤Г╤А╨╛╨▓╨╡╨╜╤М (Docker) тХРтХРтХРтХР
-      printf_title "╨н╤В╨░╨┐ 4.1: ╨Т╨╜╤Г╤В╤А╨╡╨╜╨╜╨╕╨╡ ╨┐╨╛╤А╤В╤Л Docker-╨║╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А╨╛╨▓"
+      # ════ ЭТАП 4.1: Внутренний уровень (Docker) ════
+      printf_title "Этап 4.1: Внутренние порты Docker-контейнеров"
       
-      # ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╨▓╨╜╤Г╤В╤А╨╡╨╜╨╜╨╡╨│╨╛ HTTP
-      printf_info "╨Я╤А╨╛╨▓╨╡╤А╨║╨░ HTTP (╨╖╨░╨┐╤А╨╛╤Б ╨╜╨░ ╨▓╨╜╤Г╤В╤А╨╡╨╜╨╜╨╕╨╣ ╨┐╨╛╤А╤В ${HTTP_PORT} ╤Б Host: ${DOMAIN})..."
+      # Проверка внутреннего HTTP
+      printf_info "Проверка HTTP (запрос на внутренний порт ${HTTP_PORT} с Host: ${DOMAIN})..."
       HTTP_RESP=$(curl -s -o /dev/null -w "%{http_code}" --resolve "${DOMAIN}:${HTTP_PORT}:127.0.0.1" "http://${DOMAIN}:${HTTP_PORT}/health" --connect-timeout 3 2>&1)
       HTTP_STATUS=$?
       if [[ $HTTP_STATUS -eq 0 ]]; then
-        printf_ok "╨Т╨╜╤Г╤В╤А╨╡╨╜╨╜╨╕╨╣ HTTP-╨┐╨╛╤А╤В ${HTTP_PORT} ╨░╨║╤В╨╕╨▓╨╡╨╜. ╨Ю╤В╨▓╨╡╤В ╤Б╨╡╤А╨▓╨╡╤А╨░: HTTP ${HTTP_RESP}"
+        printf_ok "Внутренний HTTP-порт ${HTTP_PORT} активен. Ответ сервера: HTTP ${HTTP_RESP}"
       else
-        printf_err "╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨┐╨╛╨┤╨║╨╗╤О╤З╨╕╤В╤М╤Б╤П ╨║ ╨▓╨╜╤Г╤В╤А╨╡╨╜╨╜╨╡╨╝╤Г HTTP-╨┐╨╛╤А╤В╤Г ${HTTP_PORT}."
-        printf_info "╨Ъ╨╛╨┤ ╨╛╤И╨╕╨▒╨║╨╕ curl: ${HTTP_STATUS} ($HTTP_RESP)"
+        printf_err "Не удалось подключиться к внутреннему HTTP-порту ${HTTP_PORT}."
+        printf_info "Код ошибки curl: ${HTTP_STATUS} ($HTTP_RESP)"
       fi
 
-      # ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╨▓╨╜╤Г╤В╤А╨╡╨╜╨╜╨╡╨│╨╛ HTTPS
-      printf_info "╨Я╤А╨╛╨▓╨╡╤А╨║╨░ HTTPS (╨╖╨░╨┐╤А╨╛╤Б ╨╜╨░ ╨▓╨╜╤Г╤В╤А╨╡╨╜╨╜╨╕╨╣ ╨┐╨╛╤А╤В ${HTTPS_PORT} ╤Б Host: ${DOMAIN})..."
+      # Проверка внутреннего HTTPS
+      printf_info "Проверка HTTPS (запрос на внутренний порт ${HTTPS_PORT} с Host: ${DOMAIN})..."
       HTTPS_RESP=$(curl -s -k -o /dev/null -w "%{http_code}" --resolve "${DOMAIN}:${HTTPS_PORT}:127.0.0.1" "https://${DOMAIN}:${HTTPS_PORT}/health" --connect-timeout 3 2>&1)
       HTTPS_STATUS=$?
       if [[ $HTTPS_STATUS -eq 0 ]]; then
-        printf_ok "╨Т╨╜╤Г╤В╤А╨╡╨╜╨╜╨╕╨╣ HTTPS-╨┐╨╛╤А╤В ${HTTPS_PORT} ╨░╨║╤В╨╕╨▓╨╡╨╜ (SSL ╨┐╤А╨╛╨┐╤Г╤Й╨╡╨╜). ╨Ю╤В╨▓╨╡╤В: HTTP ${HTTPS_RESP}"
+        printf_ok "Внутренний HTTPS-порт ${HTTPS_PORT} активен (SSL пропущен). Ответ: HTTP ${HTTPS_RESP}"
       else
-        printf_err "╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨┐╨╛╨┤╨║╨╗╤О╤З╨╕╤В╤М╤Б╤П ╨║ ╨▓╨╜╤Г╤В╤А╨╡╨╜╨╜╨╡╨╝╤Г HTTPS-╨┐╨╛╤А╤В╤Г ${HTTPS_PORT}."
-        printf_info "╨Ъ╨╛╨┤ ╨╛╤И╨╕╨▒╨║╨╕ curl: ${HTTPS_STATUS} ($HTTPS_RESP)"
+        printf_err "Не удалось подключиться к внутреннему HTTPS-порту ${HTTPS_PORT}."
+        printf_info "Код ошибки curl: ${HTTPS_STATUS} ($HTTPS_RESP)"
       fi
 
-      # тХРтХРтХРтХР ╨н╨в╨Р╨Я 4.2: ╨Т╨╜╨╡╤И╨╜╨╕╨╣ ╤Г╤А╨╛╨▓╨╡╨╜╤М (╨Я╤Г╨▒╨╗╨╕╤З╨╜╤Л╨╣ ╨┐╤А╨╛╨║╤Б╨╕) тХРтХРтХРтХР
-      printf_title "╨н╤В╨░╨┐ 4.2: ╨Т╨╜╨╡╤И╨╜╨╕╨╡ ╨┐╤Г╨▒╨╗╨╕╤З╨╜╤Л╨╡ ╨┐╨╛╤А╤В╤Л ╨┐╤А╨╛╨║╤Б╨╕ Nginx"
+      # ════ ЭТАП 4.2: Внешний уровень (Публичный прокси) ════
+      printf_title "Этап 4.2: Внешние публичные порты прокси Nginx"
       
-      # ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╨▓╨╜╨╡╤И╨╜╨╡╨│╨╛ HTTP (╨┐╨╛╤А╤В 80)
-      printf_info "╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╨▓╨╜╨╡╤И╨╜╨╡╨│╨╛ HTTP (╨┐╨╛╤А╤В 80 ╤Б Host: ${DOMAIN})..."
+      # Проверка внешнего HTTP (порт 80)
+      printf_info "Проверка внешнего HTTP (порт 80 с Host: ${DOMAIN})..."
       EXT_HTTP_RESP=$(curl -s -o /dev/null -w "%{http_code}" --resolve "${DOMAIN}:80:127.0.0.1" "http://${DOMAIN}/health" --connect-timeout 3 2>&1)
       EXT_HTTP_STATUS=$?
       if [[ $EXT_HTTP_STATUS -eq 0 ]]; then
-        printf_ok "╨Т╨╜╨╡╤И╨╜╨╕╨╣ HTTP-╨┐╨╛╤А╤В 80 ╨░╨║╤В╨╕╨▓╨╡╨╜. ╨Ю╤В╨▓╨╡╤В ╤Б╨╡╤А╨▓╨╡╤А╨░: HTTP ${EXT_HTTP_RESP}"
+        printf_ok "Внешний HTTP-порт 80 активен. Ответ сервера: HTTP ${EXT_HTTP_RESP}"
       else
-        printf_err "╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨┐╨╛╨┤╨║╨╗╤О╤З╨╕╤В╤М╤Б╤П ╨║ ╨▓╨╜╨╡╤И╨╜╨╡╨╝╤Г HTTP-╨┐╨╛╤А╤В╤Г 80."
-        printf_info "╨Ъ╨╛╨┤ ╨╛╤И╨╕╨▒╨║╨╕ curl: ${EXT_HTTP_STATUS} ($EXT_HTTP_RESP)"
+        printf_err "Не удалось подключиться к внешнему HTTP-порту 80."
+        printf_info "Код ошибки curl: ${EXT_HTTP_STATUS} ($EXT_HTTP_RESP)"
       fi
 
-      # ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╨▓╨╜╨╡╤И╨╜╨╡╨│╨╛ HTTPS (╨┐╨╛╤А╤В 443) ╨▒╨╡╨╖ ╨┐╤А╨╛╨▓╨╡╤А╨║╨╕ ╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╨░ (-k)
-      printf_info "╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╨▓╨╜╨╡╤И╨╜╨╡╨│╨╛ HTTPS (╨┐╨╛╤А╤В 443, SSL ╨┐╤А╨╛╨┐╤Г╤Й╨╡╨╜)..."
+      # Проверка внешнего HTTPS (порт 443) без проверки сертификата (-k)
+      printf_info "Проверка внешнего HTTPS (порт 443, SSL пропущен)..."
       EXT_HTTPS_RESP=$(curl -s -k -o /dev/null -w "%{http_code}" --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/health" --connect-timeout 3 2>&1)
       EXT_HTTPS_STATUS=$?
       if [[ $EXT_HTTPS_STATUS -eq 0 ]]; then
-        printf_ok "╨Т╨╜╨╡╤И╨╜╨╕╨╣ HTTPS-╨┐╨╛╤А╤В 443 ╨░╨║╤В╨╕╨▓╨╡╨╜ (SSL ╨┐╤А╨╛╨┐╤Г╤Й╨╡╨╜). ╨Ю╤В╨▓╨╡╤В: HTTP ${EXT_HTTPS_RESP}"
+        printf_ok "Внешний HTTPS-порт 443 активен (SSL пропущен). Ответ: HTTP ${EXT_HTTPS_RESP}"
       else
-        printf_err "╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨┐╨╛╨┤╨║╨╗╤О╤З╨╕╤В╤М╤Б╤П ╨║ ╨▓╨╜╨╡╤И╨╜╨╡╨╝╤Г HTTPS-╨┐╨╛╤А╤В╤Г 443."
-        printf_info "╨Ъ╨╛╨┤ ╨╛╤И╨╕╨▒╨║╨╕ curl: ${EXT_HTTPS_STATUS} ($EXT_HTTPS_RESP)"
+        printf_err "Не удалось подключиться к внешнему HTTPS-порту 443."
+        printf_info "Код ошибки curl: ${EXT_HTTPS_STATUS} ($EXT_HTTPS_RESP)"
       fi
 
-      # ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╨▓╨░╨╗╨╕╨┤╨╜╨╛╤Б╤В╨╕ SSL-╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╨░ ╨╜╨░ ╨▓╨╜╨╡╤И╨╜╨╡╨╝ HTTPS (╨┐╨╛╤А╤В 443)
+      # Проверка валидности SSL-сертификата на внешнем HTTPS (порт 443)
       if [[ $EXT_HTTPS_STATUS -eq 0 ]]; then
-        printf_info "╨Я╤А╨╛╨▓╨╡╤А╤П╤О ╨┤╨╛╨▓╨╡╤А╨╕╨╡ ╨╕ ╨▓╨░╨╗╨╕╨┤╨╜╨╛╤Б╤В╤М SSL-╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╨░ ╨╜╨░ ╨▓╨╜╨╡╤И╨╜╨╡╨╝ HTTPS-╨┐╨╛╤А╤В╤Г..."
-        # ╨Ч╨░╨┐╤А╨╛╤Б ╨▒╨╡╨╖ ╤Д╨╗╨░╨│╨░ -k (╤Б ╨┐╤А╨╛╨▓╨╡╤А╨║╨╛╨╣ SSL)
+        printf_info "Проверяю доверие и валидность SSL-сертификата на внешнем HTTPS-порту..."
+        # Запрос без флага -k (с проверкой SSL)
         SSL_RESP=$(curl -s -o /dev/null -w "%{http_code}" --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/health" --connect-timeout 3 2>&1)
         SSL_STATUS=$?
         if [[ $SSL_STATUS -eq 0 ]]; then
-          printf_ok "SSL-╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В ╤Г╤Б╨┐╨╡╤И╨╜╨╛ ╨┐╤А╨╛╤И╨╡╨╗ ╨┐╤А╨╛╨▓╨╡╤А╨║╤Г ╨┤╨╛╨▓╨╡╤А╨╕╤П!"
+          printf_ok "SSL-сертификат успешно прошел проверку доверия!"
         else
-          printf_err "╨Ю╤И╨╕╨▒╨║╨░ ╨▓╨░╨╗╨╕╨┤╨░╤Ж╨╕╨╕ SSL-╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╨░ (╨║╨╛╨┤ curl: ${SSL_STATUS})."
+          printf_err "Ошибка валидации SSL-сертификата (код curl: ${SSL_STATUS})."
           if [[ $SSL_STATUS -eq 60 || $SSL_STATUS -eq 51 ]]; then
-            echo -e "   ${C_YELLOW}ЁЯТб ╨Я╨╛╨┤╤Б╨║╨░╨╖╨║╨░:${C_RESET} ╨б╨║╨╛╤А╨╡╨╡ ╨▓╤Б╨╡╨│╨╛, ╨╕╤Б╨┐╨╛╨╗╤М╨╖╤Г╨╡╤В╤Б╤П ╤Б╨░╨╝╨╛╨┐╨╛╨┤╨┐╨╕╤Б╨░╨╜╨╜╤Л╨╣ (mock) ╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В"
-            echo -e "                 ╨╕╨╗╨╕ ╨╕╨╝╤П ╨┤╨╛╨╝╨╡╨╜╨░ ╨╜╨╡ ╤Б╨╛╨▓╨┐╨░╨┤╨░╨╡╤В ╤Б ╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╨╛╨╝."
-            echo -e "                 ╨Ч╨░╨┐╤Г╤Б╤В╨╕╤В╨╡ ╨┐╤Г╨╜╨║╤В [6] ╨╝╨╡╨╜╤О ╨а╨╡╤И╨░╨╗╤Л ╨┤╨╗╤П ╨▓╤Л╨┐╤Г╤Б╨║╨░ ╤А╨╡╨░╨╗╤М╨╜╨╛╨│╨╛ ╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╨░ Let's Encrypt!"
+            echo -e "   ${C_YELLOW}💡 Подсказка:${C_RESET} Скорее всего, используется самоподписанный (mock) сертификат"
+            echo -e "                 или имя домена не совпадает с сертификатом."
+            echo -e "                 Запустите пункт [6] меню Решалы для выпуска реального сертификата Let's Encrypt!"
           else
-            echo -e "   ${C_YELLOW}ЁЯТб ╨Я╨╛╨┤╤Б╨║╨░╨╖╨║╨░:${C_RESET} ╨Ю╤И╨╕╨▒╨║╨░ SSL: $SSL_RESP"
+            echo -e "   ${C_YELLOW}💡 Подсказка:${C_RESET} Ошибка SSL: $SSL_RESP"
           fi
         fi
       fi
 
-      # ╨а╨╡╨║╨╛╨╝╨╡╨╜╨┤╨░╤Ж╨╕╨╕ ╨┐╤А╨╕ ╨╛╤И╨╕╨▒╨║╨░╤Е ╨▓ ╤А╨╡╨╢╨╕╨╝╨╡ ╨╕╨╜╤В╨╡╨│╤А╨░╤Ж╨╕╨╕
+      # Рекомендации при ошибках в режиме интеграции
       if [[ $EXT_HTTP_STATUS -ne 0 ]] || [[ $EXT_HTTPS_STATUS -ne 0 ]]; then
-        echo -e "\n${C_YELLOW}${C_BOLD}ЁЯТб ╨а╨╡╨║╨╛╨╝╨╡╨╜╨┤╨░╤Ж╨╕╤П ╨┐╨╛ ╤А╨╡╤И╨╡╨╜╨╕╤О ╨▓╨╜╨╡╤И╨╜╨╡╨╣ ╨┤╨╛╤Б╤В╤Г╨┐╨╜╨╛╤Б╤В╨╕:${C_RESET}"
-        echo "   ╨Т╨╜╤Г╤В╤А╨╡╨╜╨╜╨╕╨╡ ╨┐╨╛╤А╤В╤Л ╤И╨╗╤О╨╖╨░ ╤А╨░╨▒╨╛╤В╨░╤О╤В, ╨╜╨╛ ╨▓╨╜╨╡╤И╨╜╨╕╨╣ ╨┐╤А╨╛╨║╤Б╨╕ Nginx ╨╜╨░ ╨┐╨╛╤А╤В╨░╤Е 80/443 ╨╜╨╡ ╨╛╤В╨▓╨╡╤З╨░╨╡╤В."
-        echo "   1. ╨г╨▒╨╡╨┤╨╕╤В╨╡╤Б╤М, ╤З╤В╨╛ ╨▓╨╜╨╡╤И╨╜╨╕╨╣ ╨║╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А Nginx (╨╕╨╗╨╕ ╤Б╨╗╤Г╨╢╨▒╨░ Nginx ╨╜╨░ ╤Е╨╛╤Б╤В╨╡) ╨╖╨░╨┐╤Г╤Й╨╡╨╜."
-        echo "   2. ╨Я╤А╨╛╨▓╨╡╤А╤М╤В╨╡, ╤З╤В╨╛ ╨▒╤А╨░╨╜╨┤╨╝╨░╤Г╤Н╤А (╨╜╨░╨┐╤А╨╕╨╝╨╡╤А, UFW) ╨╜╨╡ ╨▒╨╗╨╛╨║╨╕╤А╤Г╨╡╤В ╨┐╨╛╤А╤В╤Л 80 ╨╕ 443:"
+        echo -e "\n${C_YELLOW}${C_BOLD}💡 Рекомендация по решению внешней доступности:${C_RESET}"
+        echo "   Внутренние порты шлюза работают, но внешний прокси Nginx на портах 80/443 не отвечает."
+        echo "   1. Убедитесь, что внешний контейнер Nginx (или служба Nginx на хосте) запущен."
+        echo "   2. Проверьте, что брандмауэр (например, UFW) не блокирует порты 80 и 443:"
         echo "      ufw status"
-        echo "   3. ╨Х╤Б╨╗╨╕ ╨┤╨╛╨╝╨╡╨╜ '${DOMAIN}' ╤В╨╛╨╗╤М╨║╨╛ ╤З╤В╨╛ ╨║╤Г╨┐╨╗╨╡╨╜, DNS A-╨╖╨░╨┐╨╕╤Б╤М ╨╝╨╛╨│╨╗╨░ ╨╡╤Й╤С ╨╜╨╡ ╨╛╨▒╨╜╨╛╨▓╨╕╤В╤М╤Б╤П."
-        echo "   4. ╨Я╤А╨╛╨▓╨╡╤А╤М╤В╨╡ ╨┐╤А╨░╨▓╨╕╨╗╤М╨╜╨╛╤Б╤В╤М ╨║╨╛╨╜╤Д╨╕╨│╤Г╤А╨░╤Ж╨╕╨╕ ╨┐╤А╨╛╨║╤Б╨╕╤А╨╛╨▓╨░╨╜╨╕╤П ╨▓╨╜╨╡╤И╨╜╨╡╨│╨╛ Nginx."
+        echo "   3. Если домен '${DOMAIN}' только что куплен, DNS A-запись могла ещё не обновиться."
+        echo "   4. Проверьте правильность конфигурации проксирования внешнего Nginx."
       fi
 
     else
-      # тХРтХРтХРтХР ╨б╤В╨░╨╜╨┤╨░╤А╤В╨╜╤Л╨╣ ╨░╨▓╤В╨╛╨╜╨╛╨╝╨╜╤Л╨╣ ╤А╨╡╨╢╨╕╨╝ (Standalone) тХРтХРтХРтХР
-      printf_info "╨Ш╤Б╨┐╨╛╨╗╤М╨╖╤Г╨╡╤В╤Б╤П ╤Б╤В╨░╨╜╨┤╨░╤А╤В╨╜╤Л╨╣ ╨░╨▓╤В╨╛╨╜╨╛╨╝╨╜╤Л╨╣ ╤А╨╡╨╢╨╕╨╝ (Standalone)."
+      # ════ Стандартный автономный режим (Standalone) ════
+      printf_info "Используется стандартный автономный режим (Standalone)."
       
-      # ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ HTTP ╨┐╨╛╤А╤В╨░
-      printf_info "╨Я╤А╨╛╨▓╨╡╤А╨║╨░ HTTP (╨╖╨░╨┐╤А╨╛╤Б ╨╜╨░ ╨┐╨╛╤А╤В ${HTTP_PORT} ╤Б Host: ${DOMAIN})..."
+      # Проверка HTTP порта
+      printf_info "Проверка HTTP (запрос на порт ${HTTP_PORT} с Host: ${DOMAIN})..."
       HTTP_RESP=$(curl -s -o /dev/null -w "%{http_code}" --resolve "${DOMAIN}:${HTTP_PORT}:127.0.0.1" "http://${DOMAIN}:${HTTP_PORT}/health" --connect-timeout 3 2>&1)
       HTTP_STATUS=$?
       
       if [[ $HTTP_STATUS -eq 0 ]]; then
-        printf_ok "HTTP-╨┐╨╛╤А╤В ${HTTP_PORT} ╨░╨║╤В╨╕╨▓╨╡╨╜. ╨Ю╤В╨▓╨╡╤В ╤Б╨╡╤А╨▓╨╡╤А╨░: HTTP ${HTTP_RESP}"
+        printf_ok "HTTP-порт ${HTTP_PORT} активен. Ответ сервера: HTTP ${HTTP_RESP}"
       else
-        printf_err "╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨┐╨╛╨┤╨║╨╗╤О╤З╨╕╤В╤М╤Б╤П ╨║ HTTP-╨┐╨╛╤А╤В╤Г ${HTTP_PORT}."
-        printf_info "╨Ъ╨╛╨┤ ╨╛╤И╨╕╨▒╨║╨╕ curl: ${HTTP_STATUS} ($HTTP_RESP)"
+        printf_err "Не удалось подключиться к HTTP-порту ${HTTP_PORT}."
+        printf_info "Код ошибки curl: ${HTTP_STATUS} ($HTTP_RESP)"
       fi
 
-      # ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ HTTPS ╨┐╨╛╤А╤В╨░ (SSL ╨┐╤А╨╛╨┐╤Г╤Й╨╡╨╜)
-      printf_info "╨Я╤А╨╛╨▓╨╡╤А╨║╨░ HTTPS (╨╖╨░╨┐╤А╨╛╤Б ╨╜╨░ ╨┐╨╛╤А╤В ${HTTPS_PORT} ╤Б Host: ${DOMAIN}, SSL ╨┐╤А╨╛╨┐╤Г╤Й╨╡╨╜)..."
+      # Проверка HTTPS порта (SSL пропущен)
+      printf_info "Проверка HTTPS (запрос на порт ${HTTPS_PORT} с Host: ${DOMAIN}, SSL пропущен)..."
       HTTPS_RESP=$(curl -s -k -o /dev/null -w "%{http_code}" --resolve "${DOMAIN}:${HTTPS_PORT}:127.0.0.1" "https://${DOMAIN}:${HTTPS_PORT}/health" --connect-timeout 3 2>&1)
       HTTPS_STATUS=$?
 
       if [[ $HTTPS_STATUS -eq 0 ]]; then
-        printf_ok "HTTPS-╨┐╨╛╤А╤В ${HTTPS_PORT} ╨░╨║╤В╨╕╨▓╨╡╨╜. ╨Ю╤В╨▓╨╡╤В ╤Б╨╡╤А╨▓╨╡╤А╨░: HTTP ${HTTPS_RESP}"
+        printf_ok "HTTPS-порт ${HTTPS_PORT} активен. Ответ сервера: HTTP ${HTTPS_RESP}"
         
-        # ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ SSL
-        printf_info "╨Я╤А╨╛╨▓╨╡╤А╤П╤О ╨┤╨╛╨▓╨╡╤А╨╕╨╡ ╨╕ ╨▓╨░╨╗╨╕╨┤╨╜╨╛╤Б╤В╤М SSL-╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╨░..."
+        # Проверка SSL
+        printf_info "Проверяю доверие и валидность SSL-сертификата..."
         SSL_RESP=$(curl -s -o /dev/null -w "%{http_code}" --resolve "${DOMAIN}:${HTTPS_PORT}:127.0.0.1" "https://${DOMAIN}:${HTTPS_PORT}/health" --connect-timeout 3 2>&1)
         SSL_STATUS=$?
         if [[ $SSL_STATUS -eq 0 ]]; then
-          printf_ok "SSL-╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В ╤Г╤Б╨┐╨╡╤И╨╜╨╛ ╨┐╤А╨╛╤И╨╡╨╗ ╨┐╤А╨╛╨▓╨╡╤А╨║╤Г ╨┤╨╛╨▓╨╡╤А╨╕╤П!"
+          printf_ok "SSL-сертификат успешно прошел проверку доверия!"
         else
-          printf_err "╨Ю╤И╨╕╨▒╨║╨░ ╨▓╨░╨╗╨╕╨┤╨░╤Ж╨╕╨╕ SSL-╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╨░ (╨║╨╛╨┤ curl: ${SSL_STATUS})."
+          printf_err "Ошибка валидации SSL-сертификата (код curl: ${SSL_STATUS})."
           if [[ $SSL_STATUS -eq 60 || $SSL_STATUS -eq 51 ]]; then
-            echo -e "   ${C_YELLOW}ЁЯТб ╨Я╨╛╨┤╤Б╨║╨░╨╖╨║╨░:${C_RESET} ╨Ш╤Б╨┐╨╛╨╗╤М╨╖╤Г╨╡╤В╤Б╤П ╤Б╨░╨╝╨╛╨┐╨╛╨┤╨┐╨╕╤Б╨░╨╜╨╜╤Л╨╣ (mock) ╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В."
-            echo -e "                 ╨Ч╨░╨┐╤Г╤Б╤В╨╕╤В╨╡ ╨┐╤Г╨╜╨║╤В [6] ╨╝╨╡╨╜╤О ╨а╨╡╤И╨░╨╗╤Л ╨┤╨╗╤П ╨▓╤Л╨┐╤Г╤Б╨║╨░ ╤А╨╡╨░╨╗╤М╨╜╨╛╨│╨╛ ╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╨░ Let's Encrypt!"
+            echo -e "   ${C_YELLOW}💡 Подсказка:${C_RESET} Используется самоподписанный (mock) сертификат."
+            echo -e "                 Запустите пункт [6] меню Решалы для выпуска реального сертификата Let's Encrypt!"
           else
-            echo -e "   ${C_YELLOW}ЁЯТб ╨Я╨╛╨┤╤Б╨║╨░╨╖╨║╨░:${C_RESET} ╨Ю╤И╨╕╨▒╨║╨░ SSL: $SSL_RESP"
+            echo -e "   ${C_YELLOW}💡 Подсказка:${C_RESET} Ошибка SSL: $SSL_RESP"
           fi
         fi
       else
-        printf_err "╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨┐╨╛╨┤╨║╨╗╤О╤З╨╕╤В╤М╤Б╤П ╨║ HTTPS-╨┐╨╛╤А╤В╤Г ${HTTPS_PORT}."
-        printf_info "╨Ъ╨╛╨┤ ╨╛╤И╨╕╨▒╨║╨╕ curl: ${HTTPS_STATUS} ($HTTPS_RESP)"
+        printf_err "Не удалось подключиться к HTTPS-порту ${HTTPS_PORT}."
+        printf_info "Код ошибки curl: ${HTTPS_STATUS} ($HTTPS_RESP)"
       fi
 
-      # ╨Ю╨▒╤Й╨╕╨╡ ╤А╨╡╨║╨╛╨╝╨╡╨╜╨┤╨░╤Ж╨╕╨╕ ╨┐╨╛ ╤Б╨╡╤В╨╡╨▓╤Л╨╝ ╨╛╤И╨╕╨▒╨║╨░╨╝ (Standalone)
+      # Общие рекомендации по сетевым ошибкам (Standalone)
       if [[ $HTTP_STATUS -ne 0 ]] || [[ $HTTPS_STATUS -ne 0 ]]; then
-        echo -e "\n${C_YELLOW}${C_BOLD}ЁЯТб ╨а╨╡╨║╨╛╨╝╨╡╨╜╨┤╨░╤Ж╨╕╤П ╨┐╨╛ ╤А╨╡╤И╨╡╨╜╨╕╤О:${C_RESET}"
-        echo "   ╨Ю╨┤╨╕╨╜ ╨╕╨╖ ╨▓╨╜╨╡╤И╨╜╨╕╤Е ╨┐╨╛╤А╤В╨╛╨▓ ╨┐╤А╨╛╨║╤Б╨╕╤А╨╛╨▓╨░╨╜╨╕╤П ╨╜╨╡ ╨╛╤В╨▓╨╡╤З╨░╨╡╤В."
-        echo "   1. ╨г╨▒╨╡╨┤╨╕╤В╨╡╤Б╤М, ╤З╤В╨╛ ╨┐╨╛╤А╤В╤Л ${HTTP_PORT} ╨╕ ${HTTPS_PORT} ╨╜╨╡ ╨╖╨░╨╜╤П╤В╤Л ╨┤╤А╤Г╨│╨╕╨╝╨╕ ╨▓╨╡╨▒-╤Б╨╡╤А╨▓╨╡╤А╨░╨╝╨╕"
-        echo "      (╨╜╨░╨┐╤А╨╕╨╝╨╡╤А, Apache ╨╕╨╗╨╕ ╨┤╤А╤Г╨│╨╕╨╝ Nginx ╨╜╨░ ╤Е╨╛╤Б╤В╨╡). ╨Я╤А╨╛╨▓╨╡╤А╨╕╤В╤М ╨╖╨░╨╜╤П╤В╨╛╤Б╤В╤М ╨┐╨╛╤А╤В╨╛╨▓:"
+        echo -e "\n${C_YELLOW}${C_BOLD}💡 Рекомендация по решению:${C_RESET}"
+        echo "   Один из внешних портов проксирования не отвечает."
+        echo "   1. Убедитесь, что порты ${HTTP_PORT} и ${HTTPS_PORT} не заняты другими веб-серверами"
+        echo "      (например, Apache или другим Nginx на хосте). Проверить занятость портов:"
         echo "      netstat -tulpn | grep -E '${HTTP_PORT}|${HTTPS_PORT}'"
-        echo "   2. ╨Я╤А╨╛╨▓╨╡╤А╤М╤В╨╡ ╨╗╨╛╨│╨╕ Nginx:"
-        echo "      ╨Т ╨╝╨╡╨╜╤О ╨а╨╡╤И╨░╨╗╤Л ╨▓╤Л╨▒╨╡╤А╨╕╤В╨╡ ╨┐╤Г╨╜╨║╤В 4 (╨б╤В╨░╤В╤Г╤Б ╨╕ ╨╢╤Г╤А╨╜╨░╨╗╤Л)"
-        echo "   3. ╨Х╤Б╨╗╨╕ ╨┤╨╛╨╝╨╡╨╜ '${DOMAIN}' ╤В╨╛╨╗╤М╨║╨╛ ╤З╤В╨╛ ╨║╤Г╨┐╨╗╨╡╨╜, DNS A-╨╖╨░╨┐╨╕╤Б╤М ╨╝╨╛╨│╨╗╨░ ╨╡╤Й╤С ╨╜╨╡ ╨╛╨▒╨╜╨╛╨▓╨╕╤В╤М╤Б╤П."
-      fi
-    fi
-  fi
-        echo "   ╨Т╨╜╤Г╤В╤А╨╡╨╜╨╜╨╕╨╡ ╨┐╨╛╤А╤В╤Л ╤И╨╗╤О╨╖╨░ ╤А╨░╨▒╨╛╤В╨░╤О╤В, ╨╜╨╛ ╨▓╨╜╨╡╤И╨╜╨╕╨╣ ╨┐╤А╨╛╨║╤Б╨╕ Nginx ╨╜╨░ ╨┐╨╛╤А╤В╨░╤Е 80/443 ╨╜╨╡ ╨╛╤В╨▓╨╡╤З╨░╨╡╤В."
-        echo "   1. ╨г╨▒╨╡╨┤╨╕╤В╨╡╤Б╤М, ╤З╤В╨╛ ╨▓╨╜╨╡╤И╨╜╨╕╨╣ ╨║╨╛╨╜╤В╨╡╨╣╨╜╨╡╤А Nginx (╨╕╨╗╨╕ ╤Б╨╗╤Г╨╢╨▒╨░ Nginx ╨╜╨░ ╤Е╨╛╤Б╤В╨╡) ╨╖╨░╨┐╤Г╤Й╨╡╨╜."
-        echo "   2. ╨Я╤А╨╛╨▓╨╡╤А╤М╤В╨╡, ╤З╤В╨╛ ╨▒╤А╨░╨╜╨┤╨╝╨░╤Г╤Н╤А (╨╜╨░╨┐╤А╨╕╨╝╨╡╤А, UFW) ╨╜╨╡ ╨▒╨╗╨╛╨║╨╕╤А╤Г╨╡╤В ╨┐╨╛╤А╤В╤Л 80 ╨╕ 443:"
-        echo "      ufw status"
-        echo "   3. ╨Х╤Б╨╗╨╕ ╨┤╨╛╨╝╨╡╨╜ '${DOMAIN}' ╤В╨╛╨╗╤М╨║╨╛ ╤З╤В╨╛ ╨║╤Г╨┐╨╗╨╡╨╜, DNS A-╨╖╨░╨┐╨╕╤Б╤М ╨╝╨╛╨│╨╗╨░ ╨╡╤Й╤С ╨╜╨╡ ╨╛╨▒╨╜╨╛╨▓╨╕╤В╤М╤Б╤П."
-        echo "   4. ╨Я╤А╨╛╨▓╨╡╤А╤М╤В╨╡ ╨┐╤А╨░╨▓╨╕╨╗╤М╨╜╨╛╤Б╤В╤М ╨║╨╛╨╜╤Д╨╕╨│╤Г╤А╨░╤Ж╨╕╨╕ ╨┐╤А╨╛╨║╤Б╨╕╤А╨╛╨▓╨░╨╜╨╕╤П ╨▓╨╜╨╡╤И╨╜╨╡╨│╨╛ Nginx."
-      fi
-
-    else
-      # тХРтХРтХРтХР ╨б╤В╨░╨╜╨┤╨░╤А╤В╨╜╤Л╨╣ ╨░╨▓╤В╨╛╨╜╨╛╨╝╨╜╤Л╨╣ ╤А╨╡╨╢╨╕╨╝ (Standalone) тХРтХРтХРтХР
-      printf_info "╨Ш╤Б╨┐╨╛╨╗╤М╨╖╤Г╨╡╤В╤Б╤П ╤Б╤В╨░╨╜╨┤╨░╤А╤В╨╜╤Л╨╣ ╨░╨▓╤В╨╛╨╜╨╛╨╝╨╜╤Л╨╣ ╤А╨╡╨╢╨╕╨╝ (Standalone)."
-      
-      # ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ HTTP ╨┐╨╛╤А╤В╨░
-      printf_info "╨Я╤А╨╛╨▓╨╡╤А╨║╨░ HTTP (╨╖╨░╨┐╤А╨╛╤Б ╨╜╨░ ╨┐╨╛╤А╤В ${HTTP_PORT} ╤Б Host: ${DOMAIN})..."
-      HTTP_RESP=$(curl -s -o /dev/null -w "%{http_code}" --resolve "${DOMAIN}:${HTTP_PORT}:127.0.0.1" "http://${DOMAIN}:${HTTP_PORT}/health" --connect-timeout 3 2>&1)
-      HTTP_STATUS=$?
-      
-      if [[ $HTTP_STATUS -eq 0 ]]; then
-        printf_ok "HTTP-╨┐╨╛╤А╤В ${HTTP_PORT} ╨░╨║╤В╨╕╨▓╨╡╨╜. ╨Ю╤В╨▓╨╡╤В ╤Б╨╡╤А╨▓╨╡╤А╨░: HTTP ${HTTP_RESP}"
-      else
-        printf_err "╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨┐╨╛╨┤╨║╨╗╤О╤З╨╕╤В╤М╤Б╤П ╨║ HTTP-╨┐╨╛╤А╤В╤Г ${HTTP_PORT}."
-        printf_info "╨Ъ╨╛╨┤ ╨╛╤И╨╕╨▒╨║╨╕ curl: ${HTTP_STATUS} ($HTTP_RESP)"
-      fi
-
-      # ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ HTTPS ╨┐╨╛╤А╤В╨░ (SSL ╨┐╤А╨╛╨┐╤Г╤Й╨╡╨╜)
-      printf_info "╨Я╤А╨╛╨▓╨╡╤А╨║╨░ HTTPS (╨╖╨░╨┐╤А╨╛╤Б ╨╜╨░ ╨┐╨╛╤А╤В ${HTTPS_PORT} ╤Б Host: ${DOMAIN}, SSL ╨┐╤А╨╛╨┐╤Г╤Й╨╡╨╜)..."
-      HTTPS_RESP=$(curl -s -k -o /dev/null -w "%{http_code}" --resolve "${DOMAIN}:${HTTPS_PORT}:127.0.0.1" "https://${DOMAIN}:${HTTPS_PORT}/health" --connect-timeout 3 2>&1)
-      HTTPS_STATUS=$?
-
-      if [[ $HTTPS_STATUS -eq 0 ]]; then
-        printf_ok "HTTPS-╨┐╨╛╤А╤В ${HTTPS_PORT} ╨░╨║╤В╨╕╨▓╨╡╨╜. ╨Ю╤В╨▓╨╡╤В ╤Б╨╡╤А╨▓╨╡╤А╨░: HTTP ${HTTPS_RESP}"
-        
-        # ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ SSL
-        printf_info "╨Я╤А╨╛╨▓╨╡╤А╤П╤О ╨┤╨╛╨▓╨╡╤А╨╕╨╡ ╨╕ ╨▓╨░╨╗╨╕╨┤╨╜╨╛╤Б╤В╤М SSL-╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╨░..."
-        SSL_RESP=$(curl -s -o /dev/null -w "%{http_code}" --resolve "${DOMAIN}:${HTTPS_PORT}:127.0.0.1" "https://${DOMAIN}:${HTTPS_PORT}/health" --connect-timeout 3 2>&1)
-        SSL_STATUS=$?
-        if [[ $SSL_STATUS -eq 0 ]]; then
-          printf_ok "SSL-╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В ╤Г╤Б╨┐╨╡╤И╨╜╨╛ ╨┐╤А╨╛╤И╨╡╨╗ ╨┐╤А╨╛╨▓╨╡╤А╨║╤Г ╨┤╨╛╨▓╨╡╤А╨╕╤П!"
-        else
-          printf_err "╨Ю╤И╨╕╨▒╨║╨░ ╨▓╨░╨╗╨╕╨┤╨░╤Ж╨╕╨╕ SSL-╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╨░ (╨║╨╛╨┤ curl: ${SSL_STATUS})."
-          if [[ $SSL_STATUS -eq 60 || $SSL_STATUS -eq 51 ]]; then
-            echo -e "   ${C_YELLOW}ЁЯТб ╨Я╨╛╨┤╤Б╨║╨░╨╖╨║╨░:${C_RESET} ╨Ш╤Б╨┐╨╛╨╗╤М╨╖╤Г╨╡╤В╤Б╤П ╤Б╨░╨╝╨╛╨┐╨╛╨┤╨┐╨╕╤Б╨░╨╜╨╜╤Л╨╣ (mock) ╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В."
-            echo -e "                 ╨Ч╨░╨┐╤Г╤Б╤В╨╕╤В╨╡ ╨┐╤Г╨╜╨║╤В [6] ╨╝╨╡╨╜╤О ╨а╨╡╤И╨░╨╗╤Л ╨┤╨╗╤П ╨▓╤Л╨┐╤Г╤Б╨║╨░ ╤А╨╡╨░╨╗╤М╨╜╨╛╨│╨╛ ╤Б╨╡╤А╤В╨╕╤Д╨╕╨║╨░╤В╨░ Let's Encrypt!"
-          else
-            echo -e "   ${C_YELLOW}ЁЯТб ╨Я╨╛╨┤╤Б╨║╨░╨╖╨║╨░:${C_RESET} ╨Ю╤И╨╕╨▒╨║╨░ SSL: $SSL_RESP"
-          fi
-        fi
-      else
-        printf_err "╨Э╨╡ ╤Г╨┤╨░╨╗╨╛╤Б╤М ╨┐╨╛╨┤╨║╨╗╤О╤З╨╕╤В╤М╤Б╤П ╨║ HTTPS-╨┐╨╛╤А╤В╤Г ${HTTPS_PORT}."
-        printf_info "╨Ъ╨╛╨┤ ╨╛╤И╨╕╨▒╨║╨╕ curl: ${HTTPS_STATUS} ($HTTPS_RESP)"
-      fi
-
-      # ╨Ю╨▒╤Й╨╕╨╡ ╤А╨╡╨║╨╛╨╝╨╡╨╜╨┤╨░╤Ж╨╕╨╕ ╨┐╨╛ ╤Б╨╡╤В╨╡╨▓╤Л╨╝ ╨╛╤И╨╕╨▒╨║╨░╨╝ (Standalone)
-      if [[ $HTTP_STATUS -ne 0 ]] || [[ $HTTPS_STATUS -ne 0 ]]; then
-        echo -e "\n${C_YELLOW}${C_BOLD}ЁЯТб ╨а╨╡╨║╨╛╨╝╨╡╨╜╨┤╨░╤Ж╨╕╤П ╨┐╨╛ ╤А╨╡╤И╨╡╨╜╨╕╤О:${C_RESET}"
-        echo "   ╨Ю╨┤╨╕╨╜ ╨╕╨╖ ╨▓╨╜╨╡╤И╨╜╨╕╤Е ╨┐╨╛╤А╤В╨╛╨▓ ╨┐╤А╨╛╨║╤Б╨╕╤А╨╛╨▓╨░╨╜╨╕╤П ╨╜╨╡ ╨╛╤В╨▓╨╡╤З╨░╨╡╤В."
-        echo "   1. ╨г╨▒╨╡╨┤╨╕╤В╨╡╤Б╤М, ╤З╤В╨╛ ╨┐╨╛╤А╤В╤Л ${HTTP_PORT} ╨╕ ${HTTPS_PORT} ╨╜╨╡ ╨╖╨░╨╜╤П╤В╤Л ╨┤╤А╤Г╨│╨╕╨╝╨╕ ╨▓╨╡╨▒-╤Б╨╡╤А╨▓╨╡╤А╨░╨╝╨╕"
-        echo "      (╨╜╨░╨┐╤А╨╕╨╝╨╡╤А, Apache ╨╕╨╗╨╕ ╨┤╤А╤Г╨│╨╕╨╝ Nginx ╨╜╨░ ╤Е╨╛╤Б╤В╨╡). ╨Я╤А╨╛╨▓╨╡╤А╨╕╤В╤М ╨╖╨░╨╜╤П╤В╨╛╤Б╤В╤М ╨┐╨╛╤А╤В╨╛╨▓:"
-        echo "      netstat -tulpn | grep -E '${HTTP_PORT}|${HTTPS_PORT}'"
-        echo "   2. ╨Я╤А╨╛╨▓╨╡╤А╤М╤В╨╡ ╨╗╨╛╨│╨╕ Nginx:"
-        echo "      ╨Т ╨╝╨╡╨╜╤О ╨а╨╡╤И╨░╨╗╤Л ╨▓╤Л╨▒╨╡╤А╨╕╤В╨╡ ╨┐╤Г╨╜╨║╤В 4 (╨б╤В╨░╤В╤Г╤Б ╨╕ ╨╢╤Г╤А╨╜╨░╨╗╤Л)"
-        echo "   3. ╨Х╤Б╨╗╨╕ ╨┤╨╛╨╝╨╡╨╜ '${DOMAIN}' ╤В╨╛╨╗╤М╨║╨╛ ╤З╤В╨╛ ╨║╤Г╨┐╨╗╨╡╨╜, DNS A-╨╖╨░╨┐╨╕╤Б╤М ╨╝╨╛╨│╨╗╨░ ╨╡╤Й╤С ╨╜╨╡ ╨╛╨▒╨╜╨╛╨▓╨╕╤В╤М╤Б╤П."
+        echo "   2. Проверьте логи Nginx:"
+        echo "      В меню Решалы выберите пункт 4 (Статус и журналы)"
+        echo "   3. Если домен '${DOMAIN}' только что куплен, DNS A-запись могла ещё не обновиться."
       fi
     fi
   fi
 else
-  printf_warn "╨д╨░╨╣╨╗ config/gateway.yml ╨╜╨╡ ╨╜╨░╨╣╨┤╨╡╨╜. ╨Я╤А╨╛╨▓╨╡╤А╨║╨░ ╨▓╨╜╨╡╤И╨╜╨╕╤Е ╨┐╨╛╤А╤В╨╛╨▓ ╨┐╤А╨╛╨┐╤Г╤Й╨╡╨╜╨░."
+  printf_warn "Файл config/gateway.yml не найден. Проверка внешних портов пропущена."
 fi
 
-echo -e "\n${C_CYAN}тХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХРтХР${C_RESET}"
+echo -e "\n${C_CYAN}══════════════════════════════════════════════════════════════${C_RESET}"
