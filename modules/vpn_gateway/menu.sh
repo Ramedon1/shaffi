@@ -1983,6 +1983,12 @@ upstream_ip = sys.argv[3].strip()
 upstream_port = sys.argv[4].strip()
 ssl_cert_path = sys.argv[5].strip()
 
+# Bulletproof sanitization of network variables
+if not upstream_ip or any(c in upstream_ip for c in " \t\n\r"):
+    upstream_ip = "127.0.0.1"
+if not upstream_port.isdigit():
+    upstream_port = "8443"
+
 with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
     content = f.read()
 
@@ -2119,6 +2125,19 @@ PY
                 printf_error "nginx -t в контейнере ОШИБКА! Откатываю..."
                 warn "Вывод nginx -t:"
                 echo "$nginx_test_output" | head -20 | sed 's/^/  /'
+                
+                # Дополнительная диагностика: копируем скомпилированный конфиг и выводим проблемные строки
+                local tmp_conf="/tmp/nginx_failed_${cname}.conf"
+                if docker cp "${cname}:/etc/nginx/nginx.conf" "$tmp_conf" 2>/dev/null; then
+                    warn "Содержимое /etc/nginx/nginx.conf вокруг строки 374:"
+                    if command -v awk &>/dev/null; then
+                        awk 'NR>=350 && NR<=395 {printf "  %3d: %s\n", NR, $0}' "$tmp_conf"
+                    else
+                        head -n 395 "$tmp_conf" | tail -n 45 | sed 's/^/  /'
+                    fi
+                    rm -f "$tmp_conf"
+                fi
+
                 warn "Логи контейнера ${cname} (последние 30 строк):"
                 docker logs "$cname" 2>&1 | tail -n 30 | sed 's/^/  /'
                 [[ -f "${cpath}.bak" ]] && cp -f "${cpath}.bak" "$cpath"
