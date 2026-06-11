@@ -1888,6 +1888,14 @@ PY
             _vgw_check_our_certs_exist "$domain"
             _vgw_prepare_monolith_certs "$domain"
 
+            # ── Шаг 1: Убеждаемся что volumes смонтированы ──────
+            if [[ "$VOLUME_NEEDED" == "1" ]]; then
+                info "Проверяю/добавляю volume сертификатов в docker-compose.yml..."
+                if ! _vgw_ensure_container_volumes "$cname" "$VOLUME_HOST" "$VOLUME_CONT"; then
+                    warn "Не удалось автоматически добавить volume. Продолжаю без него..."
+                fi
+            fi
+
             # Определяем IP хоста для проксирования из контейнера
             local upstream_host="127.0.0.1"
             if [[ -n "$cname" ]] && command -v docker &>/dev/null; then
@@ -1899,7 +1907,12 @@ PY
             fi
 
             # Путь к сертификату внутри контейнера Nginx
-            local monolith_cert_path="/etc/letsencrypt/live/${domain}"
+            local monolith_cert_path
+            if [[ "$VOLUME_NEEDED" == "1" ]]; then
+                monolith_cert_path="/etc/nginx/certs"
+            else
+                monolith_cert_path=$(dirname "$CERT")
+            fi
 
             # Создаём бэкап nginx.conf.template перед инъекцией
             if [[ ! -f "${cpath}.bak" ]]; then
@@ -1967,8 +1980,8 @@ server_block = f'''
         set_real_ip_from unix:;
         real_ip_header proxy_protocol;
 
-        access_log /var/log/nginx_custom/bedolaga_access.log;
-        error_log /var/log/nginx_custom/bedolaga_error.log;
+        access_log /var/log/nginx/bedolaga_access.log;
+        error_log /var/log/nginx/bedolaga_error.log;
 
         ssl_certificate     "{ssl_cert_path}/fullchain.pem";
         ssl_certificate_key "{ssl_cert_path}/privkey.pem";
@@ -2351,8 +2364,8 @@ server {
     real_ip_header proxy_protocol;
 
     # Логи
-    access_log /var/log/nginx_custom/${domain}_access.log;
-    error_log /var/log/nginx_custom/${domain}_error.log;
+    access_log /var/log/nginx/${domain}_access.log;
+    error_log /var/log/nginx/${domain}_error.log;
 
     # Сертификаты (используются пути, доступные Nginx)
     ssl_certificate     "${stream_ssl_cert}";
