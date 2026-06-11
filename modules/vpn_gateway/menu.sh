@@ -14,6 +14,7 @@
 # @item( vpn_gateway | 5 | 🧪 Прогнать тесты | vgw_test | 50 | 2 | Запускает встроенные тесты проекта шлюза. )
 # @item( vpn_gateway | 6 | 🔐 Сертификаты (выпуск/продление) | vgw_certs_full | 60 | 2 | Выпускает, продлевает сертификаты и настраивает cron. )
 # @item( vpn_gateway | 7 | 💳 Скрытие return в платежке | vgw_toggle_hide_payment_return | 70 | 3 | Включает или отключает скрытие return-ссылки в платежах. )
+# @item( vpn_gateway | 8 | 📄 Управление страницами лендинга | vgw_manage_landing_pages | 80 | 3 | Добавление, изменение и удаление страниц лендинга. )
 # @item( vpn_gateway | x | 🧪 Удаление (предпросмотр) | vgw_uninstall_dry | 95 | 4 | Предпросмотр удаления без фактических изменений. )
 # @item( vpn_gateway | d | 🗑️ Удаление выполнить (опасно) | vgw_uninstall_execute_confirmed | 96 | 4 | Удаление контейнеров шлюза (с подтверждением). )
 # @item( vpn_gateway | D | ☠️ Полная очистка (очень опасно) | vgw_uninstall_purge_confirmed | 97 | 4 | Удаление контейнеров и локальных данных шлюза. )
@@ -3458,6 +3459,338 @@ vgw_toggle_hide_payment_return() {
         if ask_yes_no "Сейчас true. Выключить? (y/n)" "n"; then _vgw_set_hide_payment_return false && printf_ok "hide_payment_return=false"; fi
     else
         if ask_yes_no "Сейчас false/unknown. Включить? (y/n)" "y"; then _vgw_set_hide_payment_return true && printf_ok "hide_payment_return=true"; fi
+    fi
+}
+
+vgw_manage_landing_pages() {
+    local cfg_file; cfg_file="$(_vgw_cfg_file)"
+    local W="$C_YELLOW" C="$C_CYAN" G="$C_GREEN" R="$C_RED" B="$C_BOLD" E="$C_RESET"
+
+    [[ -f "$cfg_file" ]] || { printf_error "Конфигурационный файл не найден."; return 1; }
+
+    while true; do
+        clear
+        menu_header "📄 Управление страницами лендинга" 64 "${C_CYAN}"
+        
+        # 1. Показываем список страниц
+        echo -e "  Текущие настроенные страницы лендинга:"
+        echo ""
+        echo -e "  ${C}ID    Путь (Path)                     Оффер (Target Offer)  Статус${E}"
+        echo -e "  ${C}───────────────────────────────────────────────────────────────────${E}"
+        
+        local py_bin; py_bin="$(_vgw_python)"
+        local pages_list
+        pages_list=$(CFG_FILE="$cfg_file" "$py_bin" - <<'PY2'
+import os, yaml
+from pathlib import Path
+p=Path(os.environ['CFG_FILE'])
+data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+default_offer = (data.get('quick_setup') or {}).get('default_offer', '')
+pages = (data.get('landing') or {}).get('pages') or []
+for i, pg in enumerate(pages):
+    path = pg.get('path', '')
+    target = pg.get('mirror_target') or pg.get('primary_target') or ''
+    is_default = "1" if target == default_offer else "0"
+    print(f"{i}|{path}|{target}|{is_default}")
+PY2
+)
+        
+        local count=0
+        if [[ -n "$pages_list" ]]; then
+            while IFS='|' read -r idx path target is_default; do
+                local status=""
+                if [[ "$is_default" == "1" ]]; then
+                    status="${G}Дефолтный 🌟${E}"
+                fi
+                printf "  ${B}[%-2s]${E} %-30s %-20s %s\n" "$((idx + 1))" "$path" "$target" "$status"
+                count=$((count + 1))
+            done <<< "$pages_list"
+        else
+            echo -e "  ${R}Страницы не найдены в конфигурации.${E}"
+        fi
+        echo ""
+        
+        # 2. Выводим опции меню управления
+        echo -e "  ${C}Доступные действия:${E}"
+        printf_menu_option "1" "➕ Добавить новую страницу лендинга" "${C_CYAN}"
+        printf_menu_option "2" "✏️  Изменить оффер для существующей страницы" "${C_CYAN}"
+        printf_menu_option "3" "🌟 Установить оффер страницы по умолчанию (default_offer)" "${C_CYAN}"
+        printf_menu_option "4" "🗑️  Удалить страницу лендинга" "${C_CYAN}"
+        echo ""
+        printf_menu_option "b" "🔙 Назад в меню маскировщика" "${C_CYAN}"
+        print_separator "─" 64
+        
+        local choice; choice=$(safe_read "Твой выбор" "") || break
+        [[ "$choice" =~ ^[bB]$ ]] && break
+        
+        case "$choice" in
+            1)
+                # ➕ Добавить
+                local new_path=""
+                while true; do
+                    new_path=$(safe_read "Введите URL-путь (должен начинаться с /, например, /promo)" "") || break
+                    [[ -z "$new_path" ]] && break
+                    if [[ "$new_path" != /* ]]; then
+                        printf_error "Путь должен начинаться со слэша '/'!"
+                        continue
+                    fi
+                    if [[ "$new_path" =~ [[:space:]] ]]; then
+                        printf_error "Путь не должен содержать пробелы!"
+                        continue
+                    fi
+                    # Проверяем на конфликт с системными путями
+                    if [[ "$new_path" =~ ^/(buy|assets|fonts|api|favicon|health|start|docs|redoc|openapi\.json) ]]; then
+                        printf_error "Этот путь зарезервирован системой!"
+                        continue
+                    fi
+                    break
+                done
+                [[ -z "$new_path" ]] && continue
+                
+                local new_target=""
+                while true; do
+                    new_target=$(safe_read "Введите код оффера для этого пути (например, wl-promo)" "") || break
+                    [[ -z "$new_target" ]] && break
+                    if [[ "$new_target" =~ [[:space:]] ]]; then
+                        printf_error "Код оффера не должен содержать пробелы!"
+                        continue
+                    fi
+                    break
+                done
+                [[ -z "$new_target" ]] && continue
+                
+                info "Добавляю страницу ${new_path} -> ${new_target}..."
+                local result
+                result=$(CFG_FILE="$cfg_file" NEW_PATH="$new_path" NEW_TARGET="$new_target" "$py_bin" - <<'PY2'
+import os, sys, yaml
+from pathlib import Path
+p=Path(os.environ['CFG_FILE'])
+data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+landing = data.setdefault('landing', {})
+pages = landing.setdefault('pages', [])
+if any(pg.get('path') == os.environ['NEW_PATH'] for pg in pages):
+    print("EXISTS")
+    sys.exit(0)
+pages.append({
+    'path': os.environ['NEW_PATH'],
+    'mirror_target': os.environ['NEW_TARGET']
+})
+p.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding='utf-8')
+print("OK")
+PY2
+)
+                if [[ "$result" == "OK" ]]; then
+                    printf_ok "Страница успешно добавлена!"
+                    _vgw_cfg_save_persistent
+                    _vgw_restart_gateway_only
+                elif [[ "$result" == "EXISTS" ]]; then
+                    printf_error "Страница с таким путем уже существует!"
+                else
+                    printf_error "Произошла ошибка при изменении конфигурации."
+                fi
+                wait_for_enter
+                ;;
+                
+            2)
+                # ✏️  Изменить оффер
+                local edit_num=""
+                while true; do
+                    edit_num=$(safe_read "Введите номер страницы (ID) для изменения оффера" "") || break
+                    [[ -z "$edit_num" ]] && break
+                    if ! [[ "$edit_num" =~ ^[0-9]+$ ]] || ((edit_num < 1 || edit_num > count)); then
+                        printf_error "Неверный номер страницы!"
+                        continue
+                    fi
+                    break
+                done
+                [[ -z "$edit_num" ]] && continue
+                
+                local edit_idx=$((edit_num - 1))
+                
+                # Получаем текущее значение target для подсказки
+                local current_target
+                current_target=$(CFG_FILE="$cfg_file" EDIT_IDX="$edit_idx" "$py_bin" - <<'PY2'
+import os, yaml
+from pathlib import Path
+p=Path(os.environ['CFG_FILE'])
+data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+pages = data.get('landing', {}).get('pages', [])
+idx = int(os.environ['EDIT_IDX'])
+if 0 <= idx < len(pages):
+    print(pages[idx].get('mirror_target') or pages[idx].get('primary_target') or '')
+PY2
+)
+                
+                local new_target=""
+                while true; do
+                    new_target=$(safe_read "Введите новый код оффера [текущий: ${current_target}]" "") || break
+                    [[ -z "$new_target" ]] && break
+                    if [[ "$new_target" =~ [[:space:]] ]]; then
+                        printf_error "Код оффера не должен содержать пробелы!"
+                        continue
+                    fi
+                    break
+                done
+                [[ -z "$new_target" ]] && continue
+                
+                info "Обновляю оффер страницы..."
+                local result
+                result=$(CFG_FILE="$cfg_file" EDIT_IDX="$edit_idx" NEW_TARGET="$new_target" "$py_bin" - <<'PY2'
+import os, yaml
+from pathlib import Path
+p=Path(os.environ['CFG_FILE'])
+data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+pages = data.get('landing', {}).get('pages', [])
+idx = int(os.environ['EDIT_IDX'])
+if 0 <= idx < len(pages):
+    pages[idx]['mirror_target'] = os.environ['NEW_TARGET']
+    # Если редактируем главную страницу, синхронизируем default_offer
+    if pages[idx].get('path') == '/':
+        data.setdefault('quick_setup', {})['default_offer'] = os.environ['NEW_TARGET']
+        if 'project' in data and 'default_target' in data['project']:
+            data['project']['default_target'] = os.environ['NEW_TARGET']
+    p.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding='utf-8')
+    print("OK")
+else:
+    print("INVALID")
+PY2
+)
+                if [[ "$result" == "OK" ]]; then
+                    printf_ok "Оффер успешно обновлен!"
+                    _vgw_cfg_save_persistent
+                    _vgw_restart_gateway_only
+                else
+                    printf_error "Не удалось обновить оффер."
+                fi
+                wait_for_enter
+                ;;
+                
+            3)
+                # 🌟 Установить оффер по умолчанию
+                local def_num=""
+                while true; do
+                    def_num=$(safe_read "Введите номер страницы (ID), оффер которой хотите сделать дефолтным" "") || break
+                    [[ -z "$def_num" ]] && break
+                    if ! [[ "$def_num" =~ ^[0-9]+$ ]] || ((def_num < 1 || def_num > count)); then
+                        printf_error "Неверный номер страницы!"
+                        continue
+                    fi
+                    break
+                done
+                [[ -z "$def_num" ]] && continue
+                
+                local def_idx=$((def_num - 1))
+                
+                info "Устанавливаю оффер по умолчанию..."
+                local result
+                result=$(CFG_FILE="$cfg_file" DEFAULT_IDX="$def_idx" "$py_bin" - <<'PY2'
+import os, yaml
+from pathlib import Path
+p=Path(os.environ['CFG_FILE'])
+data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+pages = data.get('landing', {}).get('pages', [])
+idx = int(os.environ['DEFAULT_IDX'])
+if 0 <= idx < len(pages):
+    target = pages[idx].get('mirror_target') or pages[idx].get('primary_target')
+    if not target:
+        print("NO_TARGET")
+    else:
+        data.setdefault('quick_setup', {})['default_offer'] = target
+        if 'project' in data and 'default_target' in data['project']:
+            data['project']['default_target'] = target
+        # Синхронизируем также / страницу с этим оффером
+        for pg in pages:
+            if pg.get('path') == '/':
+                pg['mirror_target'] = target
+        p.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding='utf-8')
+        print("OK")
+else:
+    print("INVALID")
+PY2
+)
+                if [[ "$result" == "OK" ]]; then
+                    printf_ok "Оффер по умолчанию успешно обновлен!"
+                    _vgw_cfg_save_persistent
+                    _vgw_restart_gateway_only
+                elif [[ "$result" == "NO_TARGET" ]]; then
+                    printf_error "У этой страницы отсутствует код оффера!"
+                else
+                    printf_error "Не удалось изменить оффер по умолчанию."
+                fi
+                wait_for_enter
+                ;;
+                
+            4)
+                # 🗑️  Удалить страницу
+                local del_num=""
+                while true; do
+                    del_num=$(safe_read "Введите номер страницы (ID) для удаления" "") || break
+                    [[ -z "$del_num" ]] && break
+                    if ! [[ "$del_num" =~ ^[0-9]+$ ]] || ((del_num < 1 || del_num > count)); then
+                        printf_error "Неверный номер страницы!"
+                        continue
+                    fi
+                    break
+                done
+                [[ -z "$del_num" ]] && continue
+                
+                local del_idx=$((del_num - 1))
+                
+                # Спрашиваем подтверждение
+                if ask_yes_no "Вы действительно хотите удалить страницу [${del_num}]? (y/n)" "n"; then
+                    info "Удаляю страницу..."
+                    local result
+                    result=$(CFG_FILE="$cfg_file" DELETE_IDX="$del_idx" "$py_bin" - <<'PY2'
+import os, yaml
+from pathlib import Path
+p=Path(os.environ['CFG_FILE'])
+data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+pages = data.get('landing', {}).get('pages', [])
+idx = int(os.environ['DELETE_IDX'])
+if 0 <= idx < len(pages):
+    if len(pages) <= 1:
+        print("LAST_PAGE")
+    elif pages[idx].get('path') == '/':
+        print("ROOT_PAGE")
+    else:
+        del pages[idx]
+        p.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding='utf-8')
+        print("OK")
+else:
+    print("INVALID")
+PY2
+)
+                    if [[ "$result" == "OK" ]]; then
+                        printf_ok "Страница успешно удалена!"
+                        _vgw_cfg_save_persistent
+                        _vgw_restart_gateway_only
+                    elif [[ "$result" == "LAST_PAGE" ]]; then
+                        printf_error "Нельзя удалить последнюю страницу лендинга! Должен быть настроен хотя бы один путь."
+                    elif [[ "$result" == "ROOT_PAGE" ]]; then
+                        printf_error "Нельзя удалить корневую страницу '/' лендинга! Она обязательна для работы главного домена."
+                    else
+                        printf_error "Не удалось удалить страницу."
+                    fi
+                else
+                    info "Удаление отменено."
+                fi
+                wait_for_enter
+                ;;
+                
+            *)
+                printf_error "Неверный пункт."
+                sleep 1
+                ;;
+        esac
+    done
+}
+
+_vgw_restart_gateway_only() {
+    info "Перезапускаю контейнер шлюза (vpn-gateway) для применения изменений..."
+    if docker restart vpn-gateway &>/dev/null; then
+        ok "Шлюз успешно перезапущен."
+    else
+        warn "Не удалось перезапустить vpn-gateway через docker. Возможно, контейнер ещё не запущен."
     fi
 }
 
