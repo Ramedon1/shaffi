@@ -1804,6 +1804,35 @@ _vgw_nginx_inject_auto() {
     domain="${domain%$'\r'}"
     gport="${gport%$'\r'}"
 
+    # Extract all landing page domains configured in gateway.yml
+    local py_bin; py_bin="$(_vgw_python)"
+    local cfg_file; cfg_file="$(_vgw_cfg_file)"
+    local add_domains=""
+    if [[ -f "$cfg_file" ]]; then
+        add_domains=$(CFG_FILE="$cfg_file" PRIMARY_DOM="$domain" "$py_bin" - <<'PY'
+import os, yaml
+from pathlib import Path
+try:
+    cfg = yaml.safe_load(Path(os.environ['CFG_FILE']).read_text(encoding='utf-8')) or {}
+    primary = os.environ['PRIMARY_DOM'].strip()
+    add_doms = set()
+    for p in (cfg.get('landing', {}) or {}).get('pages', []):
+        for d in p.get('domains', []):
+            if d.strip() and d.strip() != primary:
+                add_doms.add(d.strip())
+    print(" ".join(list(add_doms)))
+except Exception:
+    print("")
+PY
+)
+    fi
+    add_domains="${add_domains%$'\r'}"
+
+    local all_domains="${domain}"
+    if [[ -n "${add_domains}" ]]; then
+        all_domains="${domain} ${add_domains}"
+    fi
+
     local cert="" key=""
 
     # ── Очистка сиротских конфигураций старого домена ──────────────────
@@ -2120,14 +2149,18 @@ PY
 
             # Выполняем инъекцию с помощью встроенного Python
             local inject_res
-            inject_res=$("$(_vgw_python)" - "$cpath" "$domain" "$upstream_host" "$gport" "$monolith_cert_path" <<'PY'
+            inject_res=$("$(_vgw_python)" - "$cpath" "$all_domains" "$upstream_host" "$gport" "$monolith_cert_path" <<'PY'
 import sys, re
 
 filepath = sys.argv[1].strip()
-domain = sys.argv[2].strip()
+all_domains_str = sys.argv[2].strip()
 upstream_ip = sys.argv[3].strip()
 upstream_port = sys.argv[4].strip()
 ssl_cert_path = sys.argv[5].strip()
+
+all_domains = [d.strip().lower() for d in all_domains_str.split() if d.strip()]
+primary_domain = all_domains[0]
+domains_space = " ".join(all_domains)
 
 # Bulletproof sanitization of network variables
 if not upstream_ip or any(c in upstream_ip for c in " \t\n\r"):
@@ -2139,25 +2172,16 @@ with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
     content = f.read()
 
 # Check if already injected
-if f"server_name {domain};" in content or f"server_name  {domain};" in content:
-    print("Already injected")
-    sys.exit(0)
+target_server_name_line = f"        server_name {domains_space};"
+if f"# BEDOLAGA LANDING - AUTOMATICALLY INJECTED" in content and target_server_name_line in content:
+    map_match = re.search(r'map\s+\$ssl_preread_server_name\s+\$route_to\s*\{([^}]*)\}', content)
+    if map_match:
+        map_content = map_match.group(1)
+        if all(f"{dom}    unix:/dev/shm/nginx_http.sock;" in map_content for dom in all_domains):
+            print("Already injected")
+            sys.exit(0)
 
-# 1. Inject to map $ssl_preread_server_name $route_to
-pattern = r'(map\s+\$ssl_preread_server_name\s+\$route_to\s*\{)'
-match = re.search(pattern, content)
-if not match:
-    sys.exit(1)
-
-insertion = f"\n        {domain}    unix:/dev/shm/nginx_http.sock;"
-idx = match.end()
-content = content[:idx] + insertion + content[idx:]
-
-# 2. Inject server blocks to the end of http {}
-last_brace_idx = content.rfind('}')
-if last_brace_idx == -1:
-    sys.exit(1)
-
+# Define the new server block content
 server_block = f'''
     # ==========================================================================
     # BEDOLAGA LANDING - AUTOMATICALLY INJECTED
@@ -2165,7 +2189,7 @@ server_block = f'''
     server {{
         listen 80;
         listen [::]:80;
-        server_name {domain};
+        server_name {domains_space};
 
         location ^~ /.well-known/acme-challenge/ {{
             root /var/www/acme-challenge;
@@ -2180,7 +2204,7 @@ server_block = f'''
     server {{
         listen unix:/dev/shm/nginx_http.sock proxy_protocol ssl;
         http2 on;
-        server_name {domain};
+        server_name {domains_space};
 
         set_real_ip_from unix:;
         real_ip_header proxy_protocol;
@@ -2218,6 +2242,50 @@ server_block = f'''
         }}
     }}
 '''
+
+# 1. Clean up any existing Bedolaga server blocks
+injected_comment = "# BEDOLAGA LANDING - AUTOMATICALLY INJECTED"
+comment_idx = content.find(injected_comment)
+if comment_idx != -1:
+    block_start = content.rfind("# ===", 0, comment_idx)
+    if block_start == -1:
+        block_start = comment_idx
+    last_brace_idx = content.rfind('}')
+    if last_brace_idx != -1 and last_brace_idx > block_start:
+        content = content[:block_start].rstrip() + "\n}"
+    else:
+        content = content[:block_start].rstrip() + "\n}"
+
+# 2. Clean up any existing map blocks (both old style unmarked and new style marked)
+map_match = re.search(r'(map\s+\$ssl_preread_server_name\s+\$route_to\s*\{[^}]*\})', content)
+if not map_match:
+    print("Error: map $ssl_preread_server_name $route_to not found!")
+    sys.exit(1)
+
+map_block = map_match.group(1)
+map_block_clean = re.sub(r'\s*#\s*BEDOLAGA_MAP_START.*#\s*BEDOLAGA_MAP_END', '', map_block, flags=re.DOTALL)
+
+lines = []
+for line in map_block_clean.splitlines():
+    if 'unix:/dev/shm/nginx_http.sock' not in line:
+        lines.append(line)
+map_block_clean = '\n'.join(lines)
+
+map_entries = ["    # BEDOLAGA_MAP_START"]
+for dom in all_domains:
+    map_entries.append(f"    {dom}    unix:/dev/shm/nginx_http.sock;")
+map_entries.append("    # BEDOLAGA_MAP_END")
+
+brace_idx = map_block_clean.find('{')
+if brace_idx == -1:
+    sys.exit(1)
+new_map_block = map_block_clean[:brace_idx+1] + "\n" + "\n".join(map_entries) + map_block_clean[brace_idx+1:]
+content = content.replace(map_block, new_map_block)
+
+# 3. Inject new server blocks right before the last closing brace of http {}
+last_brace_idx = content.rfind('}')
+if last_brace_idx == -1:
+    sys.exit(1)
 
 content = content[:last_brace_idx] + server_block + "\n" + content[last_brace_idx:]
 
