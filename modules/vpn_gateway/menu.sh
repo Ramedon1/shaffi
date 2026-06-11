@@ -3472,6 +3472,14 @@ vgw_manage_landing_pages() {
         clear
         menu_header "📄 Управление страницами лендинга" 64 "${C_CYAN}"
         
+        # Информационная сноска
+        echo -e "  ${C_GRAY}💡 Информация:${C_RESET}"
+        echo -e "  • ${B}Главная страница (/) ${E}— корневой адрес вашего сайта."
+        echo -e "  • ${B}Дефолтный оффер (default_offer)${E} — глобальный резервный оффер."
+        echo -e "    Он используется для системных перенаправлений на пути ${C}/start${E}."
+        echo -e "  ───────────────────────────────────────────────────────────────────"
+        echo ""
+
         # 1. Показываем список страниц
         echo -e "  Текущие настроенные страницы лендинга:"
         echo ""
@@ -3491,18 +3499,28 @@ for i, pg in enumerate(pages):
     path = pg.get('path', '')
     target = pg.get('mirror_target') or pg.get('primary_target') or ''
     is_default = "1" if target == default_offer else "0"
-    print(f"{i}|{path}|{target}|{is_default}")
+    is_root = "1" if path == "/" else "0"
+    print(f"{i}|{path}|{target}|{is_default}|{is_root}")
 PY2
 )
         
         local count=0
         if [[ -n "$pages_list" ]]; then
-            while IFS='|' read -r idx path target is_default; do
-                local status=""
-                if [[ "$is_default" == "1" ]]; then
-                    status="${G}Дефолтный 🌟${E}"
+            while IFS='|' read -r idx path target is_default is_root; do
+                local status_parts=()
+                if [[ "$is_root" == "1" ]]; then
+                    status_parts+=("${C_CYAN}🏠 Главная${E}")
                 fi
-                printf "  ${B}[%-2s]${E} %-30s %-20s %s\n" "$((idx + 1))" "$path" "$target" "$status"
+                if [[ "$is_default" == "1" ]]; then
+                    status_parts+=("${G}🌟 Дефолтный оффер${E}")
+                fi
+                
+                local status=""
+                if [[ ${#status_parts[@]} -gt 0 ]]; then
+                    status="[$(IFS=' '; echo "${status_parts[*]}")]"
+                fi
+                
+                printf "  ${B}[%-2s]${E} %-30s %-20s %b\n" "$((idx + 1))" "$path" "$target" "$status"
                 count=$((count + 1))
             done <<< "$pages_list"
         else
@@ -3526,9 +3544,16 @@ PY2
         case "$choice" in
             1)
                 # ➕ Добавить
+                clear
+                menu_header "➕ Добавление новой страницы" 64 "${C_CYAN}"
+                echo -e "  Вы создаете дополнительный путь, который можно будет рекламировать."
+                echo -e "  Примеры путей: ${G}/promo${E}, ${G}/sale${E}, ${G}/free-vpn${E}"
+                echo -e "  ${C_GRAY}* Путь должен начинаться со слэша '/' и не содержать пробелов.${C_RESET}"
+                echo ""
+                
                 local new_path=""
                 while true; do
-                    new_path=$(safe_read "Введите URL-путь (должен начинаться с /, например, /promo)" "") || break
+                    new_path=$(safe_read "Введите URL-путь (например, /promo)" "") || break
                     [[ -z "$new_path" ]] && break
                     if [[ "$new_path" != /* ]]; then
                         printf_error "Путь должен начинаться со слэша '/'!"
@@ -3547,9 +3572,15 @@ PY2
                 done
                 [[ -z "$new_path" ]] && continue
                 
+                echo ""
+                echo -e "  Укажите код тарифа (оффера) из вашей панели Bedolaga/Remnawave."
+                echo -e "  При переходе на указанный путь клиент попадет именно на этот тариф."
+                echo -e "  Примеры офферов: ${G}wl-lte${E}, ${G}business${E}, ${G}promo-offer${E}"
+                echo ""
+                
                 local new_target=""
                 while true; do
-                    new_target=$(safe_read "Введите код оффера для этого пути (например, wl-promo)" "") || break
+                    new_target=$(safe_read "Введите код оффера для этого пути" "") || break
                     [[ -z "$new_target" ]] && break
                     if [[ "$new_target" =~ [[:space:]] ]]; then
                         printf_error "Код оффера не должен содержать пробелы!"
@@ -3593,6 +3624,12 @@ PY2
                 
             2)
                 # ✏️  Изменить оффер
+                clear
+                menu_header "✏️ Изменение оффера страницы" 64 "${C_CYAN}"
+                echo -e "  Эта операция позволяет привязать другой тариф к уже созданному адресу."
+                echo -e "  Сам адрес (путь) останется прежним, но клиенты пойдут на новый оффер."
+                echo ""
+                
                 local edit_num=""
                 while true; do
                     edit_num=$(safe_read "Введите номер страницы (ID) для изменения оффера" "") || break
@@ -3667,6 +3704,14 @@ PY2
                 
             3)
                 # 🌟 Установить оффер по умолчанию
+                clear
+                menu_header "🌟 Установка оффера по умолчанию" 64 "${C_CYAN}"
+                echo -e "  Вы выбираете оффер, который будет использоваться в качестве дефолтного."
+                echo -e "  Этот оффер автоматически пропишется:"
+                echo -e "  1. На главной странице ${G}/${E} (если вы перейдете на чистый домен)."
+                echo -e "  2. На специальном пути ${G}/start${E} (служит для редиректов оплаты)."
+                echo ""
+                
                 local def_num=""
                 while true; do
                     def_num=$(safe_read "Введите номер страницы (ID), оффер которой хотите сделать дефолтным" "") || break
@@ -3722,6 +3767,13 @@ PY2
                 
             4)
                 # 🗑️  Удалить страницу
+                clear
+                menu_header "🗑️ Удаление страницы лендинга" 64 "${C_CYAN}"
+                echo -e "  Удаление страницы приведет к тому, что по этой ссылке клиенты"
+                echo -e "  больше не смогут открыть лендинг (будет показываться ошибка 404/перенаправление)."
+                echo -e "  ${R}${B}Внимание:${E} Главную страницу ${G}/${E} удалить нельзя."
+                echo ""
+                
                 local del_num=""
                 while true; do
                     del_num=$(safe_read "Введите номер страницы (ID) для удаления" "") || break
