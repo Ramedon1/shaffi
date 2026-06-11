@@ -641,22 +641,32 @@ PY
 }
 
 # ══════════════════════════════════════════════════════════════════
-# Умный детектор nginx-окружения (5 типов)
+# Умный детектор nginx-окружения (8 типов)
 # Возвращает строку:
-#   free                          — порты свободны
+#   free                          — порты свободны, edge-nginx займёт 80/443
 #   our_container                 — наш vpn-edge-nginx уже занимает порты
-#   host:nginx                    — хостовый systemd nginx
+#   host:nginx                    — хостовый systemd nginx (активен)
+#   host:nginx:installable        — nginx не установлен, порты свободны → можно поставить
 #   docker:conf.d:NAME:PATH       — docker nginx с bind-mount conf.d (remnawave-panel)
-#   docker:hostnet:NAME:CFGPATH   — docker nginx с network_mode:host (remnawave-node)
+#   docker:templates:NAME:PATH    — docker nginx с bind-mount templates
+#   docker:monolith:NAME:PATH     — docker nginx монолит nginx.conf.template (remnawave-node)
+#   docker:hostnet:NAME:CFGPATH   — docker nginx с network_mode:host прочий
 #   docker:nginx:NAME             — docker nginx прочий (порты 80:80)
-#   unknown                       — занято чем-то неизвестным
+#   unknown                       — порты заняты неизвестным процессом
 # ══════════════════════════════════════════════════════════════════
 _vgw_smart_nginx_detect() {
     local http_port="${1:-80}" https_port="${2:-443}"
 
-    # Если мы сами (gateway) занимаем 80 и 443 — внешний nginx нам не нужен, инжект не нужен
+    # Если наш vpn-edge-nginx уже запущен — он сам занимает 80/443
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "vpn-edge-nginx"; then
+        echo "our_container"; return 0
+    fi
+
+    # Если gateway занимает 80/443 напрямую — только если порты реально свободны
     if [[ "$http_port" == "80" && "$https_port" == "443" ]]; then
-        echo "free"; return 0
+        if _vgw_check_port_free "80" && _vgw_check_port_free "443"; then
+            echo "free"; return 0
+        fi
     fi
 
     # Ищем внешний Docker nginx
@@ -690,7 +700,7 @@ _vgw_smart_nginx_detect() {
             netmode=$(docker inspect "$cname" 2>/dev/null \
                 --format='{{.HostConfig.NetworkMode}}' | head -1)
             if [[ "$netmode" == "host" ]]; then
-                # Тип 3.5: network_mode host с монолитным шаблоном (bind mount /etc/nginx/nginx.conf.template)
+                # Тип 3.5: монолитный шаблон (bind mount /etc/nginx/nginx.conf.template)
                 local monolith_host
                 monolith_host=$(docker inspect "$cname" 2>/dev/null \
                     --format='{{range .Mounts}}{{if eq .Destination "/etc/nginx/nginx.conf.template"}}{{.Source}}{{end}}{{end}}' \
@@ -698,6 +708,17 @@ _vgw_smart_nginx_detect() {
                 if [[ -n "$monolith_host" && -f "$monolith_host" ]]; then
                     echo "docker:monolith:${cname}:${monolith_host}"; return 0
                 fi
+
+                # Резервный поиск nginx.conf.template по стандартным путям (если bind не задан в docker inspect)
+                local labels_workdir
+                labels_workdir=$(docker inspect "$cname" 2>/dev/null \
+                    --format='{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null || echo "")
+                for search_path in "$labels_workdir" "/opt/${cname}" "/opt/remnawave" "/opt/remnawave-node" "/srv/${cname}"; do
+                    [[ -z "$search_path" ]] && continue
+                    if [[ -f "${search_path}/nginx.conf.template" ]]; then
+                        echo "docker:monolith:${cname}:${search_path}/nginx.conf.template"; return 0
+                    fi
+                done
 
                 # пытаемся найти путь к nginx.conf через bind mounts
                 local nginx_conf_host
@@ -717,6 +738,11 @@ _vgw_smart_nginx_detect() {
     if systemctl is-active --quiet nginx 2>/dev/null || \
        { command -v nginx &>/dev/null && nginx -v &>/dev/null 2>&1; }; then
         echo "host:nginx"; return 0
+    fi
+
+    # Порты 80/443 свободны и nginx не установлен → можно предложить автоустановку
+    if _vgw_check_port_free "80" && _vgw_check_port_free "443"; then
+        echo "host:nginx:installable"; return 0
     fi
 
     echo "unknown"
@@ -1073,6 +1099,11 @@ _vgw_detect_show_plan() {
             echo -e "  ${C}║${E}  conf-dir:   ${G}${cdir}${E}"
             echo -e "  ${C}║${E}  Gateway:    порт ${G}${gport}${E} (не 443)"
             ;;
+        host:nginx:installable)
+            echo -e "  ${C}║${E}  Тип:        ${G}Nginx не установлен — порты свободны!${E}"
+            echo -e "  ${C}║${E}  Стратегия:  ${G}Авто-установка nginx + proxy_pass конфиг${E}"
+            echo -e "  ${C}║${E}  Gateway:    порт ${G}${gport}${E}"
+            ;;
         docker:conf.d:*)
             echo -e "  ${C}║${E}  Тип:        ${W}Docker nginx с модульным conf.d${E}"
             echo -e "  ${C}║${E}  Контейнер:  ${G}${cname}${E}"
@@ -1124,6 +1155,12 @@ _vgw_detect_show_plan() {
             echo -e "  ${C}║${E}  1. Создать ${G}${cdir}/${domain}.conf${E}"
             echo -e "  ${C}║${E}  2. nginx -t && systemctl reload nginx"
             echo -e "  ${C}║${E}  3. Gateway запустится на порту ${G}${gport}${E}"
+            ;;
+        host:nginx:installable)
+            echo -e "  ${C}║${E}  1. ${G}apt-get install -y nginx${E} (или dnf/yum)"
+            echo -e "  ${C}║${E}  2. Создать ${G}/etc/nginx/conf.d/${domain}.conf${E}"
+            echo -e "  ${C}║${E}  3. nginx -t && systemctl reload nginx"
+            echo -e "  ${C}║${E}  4. Gateway запустится на порту ${G}${gport}${E}"
             ;;
         docker:conf.d:*)
             if [[ "$VOLUME_NEEDED" == "0" && ( "$CSRC_EFFECTIVE" == "certwarden" || "$CSRC_EFFECTIVE" == "letsencrypt" ) ]]; then
@@ -2576,7 +2613,7 @@ from pathlib import Path
 c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}
 print(c.get('quick_setup',{}).get('origin_domain','cabinet.example.com'))" 2>/dev/null || echo "cabinet.example.com")
 
-    local nginx_type; nginx_type=$("$(_vgw_detect_nginx)" 2>/dev/null; _vgw_detect_nginx)
+    local nginx_type; nginx_type=$(_vgw_smart_nginx_detect "$http_port" "$https_port" 2>/dev/null)
     local conf_dir; conf_dir=$(_vgw_find_nginx_conf_dir)
     local conf_file="${conf_dir}/${public_domain}.conf"
 
@@ -2677,13 +2714,15 @@ NGINXCONF
     echo ""
     local reload_cmd="nginx -t && systemctl reload nginx"
     if [[ "$nginx_type" == docker:* ]]; then
-        local d_name="${nginx_type#docker:}"
+        # nginx_type format: docker:TYPE:CNAME:PATH → extract CNAME (field 3)
+        local d_name; d_name=$(echo "$nginx_type" | cut -d: -f3)
+        [[ -z "$d_name" ]] && d_name="${nginx_type#docker:}"
         reload_cmd="docker exec ${d_name} nginx -t && docker exec ${d_name} nginx -s reload"
     fi
 
     echo -e "  ${C_WHITE}Команды для применения:${C_RESET}"
     echo -e "  ${C_CYAN}  nano ${conf_file}${C_RESET} ${C_GRAY}# Вставьте туда этот конфиг${C_RESET}"
-    if [[ ! -f "${cert_path}/fullchain.pem" ]]; then
+    if [[ ! -f "${resolved_cert_path}/fullchain.pem" ]]; then
         echo -e "  ${C_YELLOW}  certbot --nginx -d ${public_domain}${C_RESET} ${C_GRAY}# Обязательно получите SSL сертификат!${C_RESET}"
     fi
     echo -e "  ${C_CYAN}  ${reload_cmd}${C_RESET}"
@@ -2814,8 +2853,72 @@ print(c.get('quick_setup',{}).get('public_domain','localhost'))" 2>/dev/null || 
     return 0
 }
 
+# ══════════════════════════════════════════════════════════════════
+# Автоустановка хостового nginx через пакетный менеджер
+# Поддерживает: apt-get (Debian/Ubuntu), yum/dnf (RHEL/CentOS/Alma)
+# Возвращает 0 при успехе, 1 при ошибке
+# ══════════════════════════════════════════════════════════════════
+_vgw_nginx_auto_install() {
+    local W="$C_YELLOW" G="$C_GREEN" R="$C_RED" B="$C_BOLD" E="$C_RESET"
+
+    info "Определяю пакетный менеджер для установки nginx..."
+
+    if command -v apt-get &>/dev/null; then
+        info "Обнаружен apt-get (Debian/Ubuntu). Устанавливаю nginx..."
+        if run_cmd apt-get update -qq && run_cmd apt-get install -y nginx; then
+            ok "nginx установлен через apt-get"
+        else
+            printf_error "Не удалось установить nginx через apt-get"
+            return 1
+        fi
+    elif command -v dnf &>/dev/null; then
+        info "Обнаружен dnf (RHEL/AlmaLinux/Fedora). Устанавливаю nginx..."
+        if run_cmd dnf install -y nginx; then
+            ok "nginx установлен через dnf"
+        else
+            printf_error "Не удалось установить nginx через dnf"
+            return 1
+        fi
+    elif command -v yum &>/dev/null; then
+        info "Обнаружен yum (CentOS). Устанавливаю nginx..."
+        if run_cmd yum install -y nginx; then
+            ok "nginx установлен через yum"
+        else
+            printf_error "Не удалось установить nginx через yum"
+            return 1
+        fi
+    else
+        printf_error "Поддерживаемый пакетный менеджер не найден (apt-get / dnf / yum)"
+        warn "Установите nginx вручную: https://nginx.org/en/linux_packages.html"
+        return 1
+    fi
+
+    # Создаём директории для ACME challenge и конфигов
+    mkdir -p /var/www/acme-challenge 2>/dev/null || true
+    mkdir -p /etc/nginx/conf.d 2>/dev/null || true
+    mkdir -p /etc/nginx/sites-available 2>/dev/null || true
+    mkdir -p /etc/nginx/sites-enabled 2>/dev/null || true
+
+    # Включаем и запускаем nginx
+    if command -v systemctl &>/dev/null; then
+        run_cmd systemctl enable nginx 2>/dev/null || true
+        run_cmd systemctl start nginx 2>/dev/null && ok "nginx запущен через systemctl" || \
+            warn "nginx установлен, но не запустился. Проверьте: systemctl status nginx"
+    fi
+
+    # Проверяем что nginx теперь доступен
+    if command -v nginx &>/dev/null && nginx -v &>/dev/null 2>&1; then
+        ok "nginx готов: $(nginx -v 2>&1)"
+        return 0
+    else
+        printf_error "nginx установлен, но не найден в PATH"
+        return 1
+    fi
+}
+
 
 vgw_install_wizard(){
+
     _vgw_preflight_check || return 1
 
     # ── Проверяем: не запущен ли стек уже? ───────────────────────
@@ -2881,6 +2984,33 @@ vgw_install_wizard(){
         case "$nginx_type" in
             free|our_container)
                 # edge-nginx сам занимает 80/443 — никаких инжектов не нужно
+                ;;
+            host:nginx:installable)
+                # nginx не установлен, порты свободны — предлагаем установить и настроить
+                echo ""
+                echo -e "  ${C_GREEN}${C_BOLD}╔══════════════════════════════════════════════════════════════╗${C_RESET}"
+                echo -e "  ${C_GREEN}${C_BOLD}║${C_RESET}  🎉  Порты 80/443 свободны! Nginx не установлен.              ${C_GREEN}${C_BOLD}║${C_RESET}"
+                echo -e "  ${C_GREEN}${C_BOLD}╠══════════════════════════════════════════════════════════════╣${C_RESET}"
+                echo -e "  ${C_GREEN}${C_BOLD}║${C_RESET}  Можно автоматически установить nginx и настроить proxy_pass. ${C_GREEN}${C_BOLD}║${C_RESET}"
+                echo -e "  ${C_GREEN}${C_BOLD}╚══════════════════════════════════════════════════════════════╝${C_RESET}"
+                echo ""
+                if ask_yes_no "Установить nginx автоматически? (y/n)" "y"; then
+                    if _vgw_nginx_auto_install; then
+                        # После установки — инжектируем конфиг как host:nginx
+                        local csrc_inst; csrc_inst=$(_vgw_detect_cert_source "")
+                        if ! _vgw_nginx_inject_auto "host:nginx" "" "" "$csrc_inst" "$public_domain" "$https_port"; then
+                            warn "Авто-инжект не удался. Показываю инструкцию..."
+                            _vgw_nginx_manual_guide "host:nginx" "" "" "$csrc_inst" "$public_domain" "$https_port"
+                        else
+                            ok "Nginx установлен и настроен!"
+                        fi
+                    else
+                        warn "Не удалось установить nginx. Показываю инструкцию для ручной установки..."
+                        _vgw_nginx_manual_guide "host:nginx" "" "" "none" "$public_domain" "$https_port"
+                    fi
+                else
+                    _vgw_nginx_manual_guide "host:nginx" "" "" "none" "$public_domain" "$https_port"
+                fi
                 ;;
             docker:hostnet:*|unknown)
                 # Авто-инжект невозможен — сразу показываем инструкцию
