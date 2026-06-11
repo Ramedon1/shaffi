@@ -291,38 +291,66 @@ def create_app(config_path: str = "config/gateway.yml") -> FastAPI:
         headers["host"] = urlsplit(target_url).netloc
         upstream_response = await forward_request(request.method, target_url, headers=headers, body=body)
 
-        response_headers = dict(upstream_response.headers)
+        response_headers_list = []
         hop_by_hop = {"connection", "keep-alive", "transfer-encoding", "upgrade", "proxy-authenticate", "proxy-authorization", "te", "trailers"}
-        for h in list(response_headers.keys()):
-            if h.lower() in hop_by_hop:
-                response_headers.pop(h, None)
-
-        if cfg.raw.get("security", {}).get("strip_server_header", True):
-            response_headers.pop("server", None)
-        response_headers.pop("date", None)
-        response_headers.pop("content-length", None)
-        response_headers.pop("content-encoding", None)
-
-        # hide_origin_headers: удаляем технические заголовки upstream
-        if cfg.raw.get("security", {}).get("hide_origin_headers", True):
-            _origin_headers = {"x-powered-by", "x-backend-server", "x-aspnet-version",
-                               "x-aspnetmvc-version", "x-request-id", "cf-ray",
-                               "x-amz-request-id", "x-amzn-trace-id"}
-            for h in list(response_headers.keys()):
-                if h.lower() in _origin_headers:
-                    response_headers.pop(h, None)
-
+        _origin_headers = {"x-powered-by", "x-backend-server", "x-aspnet-version", "x-aspnetmvc-version", "x-request-id", "cf-ray", "x-amz-request-id", "x-amzn-trace-id"}
+        
         # Динамически определяем public_domain на основе текущего хоста запроса
         public_domain = request.url.hostname or (cfg.raw.get("project", {}) or {}).get("public_domain", "")
         origin_domain = (cfg.raw.get("quick_setup", {}) or {}).get("origin_domain", "")
         hide_payment_return = cfg.raw.get("security", {}).get("hide_payment_return", False)
+        
+        req_origin = request.headers.get("origin")
+        
+        for k, v in upstream_response.headers.multi_items():
+            k_low = k.lower()
+            if k_low in hop_by_hop:
+                continue
+            if cfg.raw.get("security", {}).get("strip_server_header", True) and k_low == "server":
+                continue
+            if k_low in ("date", "content-length", "content-encoding"):
+                continue
+            if cfg.raw.get("security", {}).get("hide_origin_headers", True) and k_low in _origin_headers:
+                continue
+            
+            # Rewrite Location header
+            if k_low == "location" and public_domain and origin_domain:
+                v = v.replace(origin_domain, public_domain)
+                if hide_payment_return:
+                    v = _obfuscate_return_in_url(v, public_domain)
+            
+            # Rewrite Set-Cookie domain
+            if k_low == "set-cookie" and origin_domain and public_domain:
+                v = v.replace(f"domain={origin_domain}", f"domain={public_domain}")
+                v = v.replace(f"Domain={origin_domain}", f"Domain={public_domain}")
 
-        location = response_headers.get("location")
-        if location and public_domain and origin_domain:
-            rewritten_location = location.replace(origin_domain, public_domain)
-            if hide_payment_return:
-                rewritten_location = _obfuscate_return_in_url(rewritten_location, public_domain)
-            response_headers["location"] = rewritten_location
+            # Rewrite CORS Access-Control-Allow-Origin header
+            if k_low == "access-control-allow-origin":
+                if req_origin:
+                    try:
+                        origin_hostname = urlsplit(req_origin).hostname
+                        if origin_hostname in allowed_domains:
+                            v = req_origin
+                    except Exception:
+                        pass
+                elif origin_domain and public_domain:
+                    v = v.replace(origin_domain, public_domain)
+            
+            if k_low == "access-control-allow-credentials":
+                v = "true"
+
+            response_headers_list.append((k, v))
+
+        # Add CORS headers if not already present
+        cors_origin_present = any(k.lower() == "access-control-allow-origin" for k, _ in response_headers_list)
+        if not cors_origin_present and req_origin:
+            try:
+                origin_hostname = urlsplit(req_origin).hostname
+                if origin_hostname in allowed_domains:
+                    response_headers_list.append(("Access-Control-Allow-Origin", req_origin))
+                    response_headers_list.append(("Access-Control-Allow-Credentials", "true"))
+            except Exception:
+                pass
 
         body_content = upstream_response.content
         content_type = (upstream_response.headers.get("content-type") or "").lower()
@@ -355,11 +383,15 @@ def create_app(config_path: str = "config/gateway.yml") -> FastAPI:
             )
             body_content = body_content.replace(b"</head>", _CABINET_CSS + b"</head>", 1)
 
-        return Response(
+        response = Response(
             content=body_content,
             status_code=upstream_response.status_code,
-            headers=response_headers,
         )
+        response.raw_headers = [
+            (k.encode("latin-1"), v.encode("latin-1"))
+            for k, v in response_headers_list
+        ]
+        return response
 
 
     return app
