@@ -80,6 +80,8 @@ if [[ -z "${EDGE_DOMAIN}" ]]; then
   exit 1
 fi
 
+RENEW_OR_KEEP="--keep-until-expiring"
+
 # Восстанавливаем из персистентного бэкапа если на хосте в edge/certs пусто
 PERSIST_CERTS_DIR="/etc/reshala-bedolaga/certs/${EDGE_DOMAIN}"
 if [[ ! -f "${FULLCHAIN}" || ! -f "${PRIVKEY}" ]]; then
@@ -105,6 +107,7 @@ if [[ -f "${FULLCHAIN}" && -f "${PRIVKEY}" ]]; then
   is_self_signed=0
   if is_cert_self_signed "${FULLCHAIN}"; then
     is_self_signed=1
+    RENEW_OR_KEEP="--force-renewal"
   fi
 
   if [[ "${cert_domain}" == "${EDGE_DOMAIN}" || "${cert_domain}" == "*.${EDGE_DOMAIN}" ]]; then
@@ -218,11 +221,12 @@ if command -v certbot > /dev/null 2>&1; then
     --webroot \
     -w "${ACME_WEBROOT_DIR}" \
     -d "${EDGE_DOMAIN}" \
+    --cert-name "${EDGE_DOMAIN}" \
     --email "${ACME_EMAIL}" \
     --agree-tos \
     --non-interactive \
     --rsa-key-size 4096 \
-    --keep-until-expiring && CERTBOT_OK=1 || CERTBOT_OK=0
+    "${RENEW_OR_KEEP}" && CERTBOT_OK=1 || CERTBOT_OK=0
 else
   docker run --rm \
     -v "${ACME_WEBROOT_DIR}:/var/www/acme-challenge" \
@@ -231,11 +235,12 @@ else
       --webroot \
       -w /var/www/acme-challenge \
       -d "${EDGE_DOMAIN}" \
+      --cert-name "${EDGE_DOMAIN}" \
       --email "${ACME_EMAIL}" \
       --agree-tos \
       --non-interactive \
       --rsa-key-size 4096 \
-      --keep-until-expiring && CERTBOT_OK=1 || CERTBOT_OK=0
+      "${RENEW_OR_KEEP}" && CERTBOT_OK=1 || CERTBOT_OK=0
 fi
 
 if [[ "${CERTBOT_OK}" -eq 0 ]]; then
