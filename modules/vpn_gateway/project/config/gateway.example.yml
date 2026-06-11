@@ -88,6 +88,9 @@ routing:
     - name: cabinet-favicon
       match: "/favicon*"
       upstream_pool: cabinet_pool
+    - name: cabinet-health
+      match: "/health/*"
+      upstream_pool: cabinet_pool
     - name: default
       match: "/*"
       upstream_pool: landing_pool

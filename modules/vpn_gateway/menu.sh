@@ -145,6 +145,53 @@ except: print('')" 2>/dev/null || echo "")
         cp -f "$bak_file" "$cfg_file" 2>/dev/null && \
             ok "Конфиг автоматически восстановлен из ${_VGW_PERSIST_DIR}" || true
     fi
+    _vgw_cfg_migrate_if_needed
+}
+
+# Миграция конфигурации: добавляет маршрут для здоровья кабинета /health/* если он отсутствует
+_vgw_cfg_migrate_if_needed() {
+    local cfg_file; cfg_file="$(_vgw_cfg_file)"
+    [[ -f "$cfg_file" ]] || return 0
+    local py_bin; py_bin="$(_vgw_python 2>/dev/null)" || return 0
+    local migrated
+    migrated=$(CFG_FILE="$cfg_file" "$py_bin" - <<'PY'
+import os, sys, yaml
+from pathlib import Path
+cfg_path = Path(os.environ['CFG_FILE'])
+try:
+    data = yaml.safe_load(cfg_path.read_text(encoding='utf-8')) or {}
+    routing = data.setdefault('routing', {})
+    routes = routing.setdefault('routes', [])
+    has_health = False
+    for r in routes:
+        if isinstance(r, dict) and r.get('match') == '/health/*':
+            has_health = True
+            break
+    if not has_health:
+        new_route = {
+            'name': 'cabinet-health',
+            'match': '/health/*',
+            'upstream_pool': 'cabinet_pool'
+        }
+        insert_idx = -1
+        for idx, r in enumerate(routes):
+            if isinstance(r, dict) and r.get('match') in ('/*', '*'):
+                insert_idx = idx
+                break
+        if insert_idx != -1:
+            routes.insert(insert_idx, new_route)
+        else:
+            routes.append(new_route)
+        cfg_path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding='utf-8')
+        print('MIGRATED')
+except Exception as e:
+    print(f'ERROR: {e}')
+PY
+)
+    if [[ "$migrated" == "MIGRATED" ]]; then
+        info "Конфигурация gateway.yml успешно мигрирована (добавлен маршрут для здоровья кабинета)."
+        _vgw_cfg_save_persistent
+    fi
 }
 
 # ── Сертификаты ───────────────────────────────────────────────────
@@ -4033,6 +4080,7 @@ PY2
                                 printf_ok "Домен успешно добавлен!"
                                 _vgw_cfg_save_persistent
                                 _vgw_restart_gateway_only
+                                _vgw_nginx_injection_update_if_needed
                                 
                                 local proj_dir; proj_dir="$(_vgw_project_dir)"
                                 echo ""
@@ -4110,6 +4158,7 @@ PY2
                                 printf_ok "Домен успешно удален!"
                                 _vgw_cfg_save_persistent
                                 _vgw_restart_gateway_only
+                                _vgw_nginx_injection_update_if_needed
                                 
                                 local proj_dir; proj_dir="$(_vgw_project_dir)"
                                 echo ""
@@ -4154,6 +4203,7 @@ PY2
                                     printf_ok "Все домены отвязаны!"
                                     _vgw_cfg_save_persistent
                                     _vgw_restart_gateway_only
+                                    _vgw_nginx_injection_update_if_needed
                                 else
                                     printf_error "Не удалось очистить список доменов."
                                 fi
@@ -4185,6 +4235,56 @@ _vgw_restart_gateway_only() {
         ok "Шлюз успешно перезапущен."
     else
         warn "Не удалось перезапустить vpn-gateway через docker. Возможно, контейнер ещё не запущен."
+    fi
+}
+
+_vgw_nginx_injection_update_if_needed() {
+    local persist_inj="${_VGW_PERSIST_DIR}/nginx_injection.env"
+    [[ -f "$persist_inj" ]] || return 0
+    local saved_type saved_file
+    saved_type=$(grep '^NGINX_TYPE=' "$persist_inj" | cut -d= -f2-)
+    saved_file=$(grep '^CONF_FILE=' "$persist_inj" | cut -d= -f2-)
+    
+    saved_type="${saved_type%$'\r'}"
+    saved_file="${saved_file%$'\r'}"
+    
+    local cfg_file="$(_vgw_cfg_file)"
+    local py_bin; py_bin="$(_vgw_python)"
+    local current_domain
+    current_domain=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('quick_setup',{}).get('public_domain',''))" 2>/dev/null || echo "")
+    current_domain="${current_domain%$'\r'}"
+    
+    local https_port; https_port=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('edge',{}).get('https_port',443))" 2>/dev/null || echo "443")
+    https_port="${https_port%$'\r'}"
+    
+    if [[ -n "$saved_type" && -n "$current_domain" ]]; then
+        info "Синхронизирую привязанные домены во внешней конфигурации Nginx..."
+        local cname="" cpath=""
+        case "$saved_type" in
+            docker:conf.d|docker:templates)
+                cname="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i nginx | grep -v vpn-edge-nginx | head -1)"
+                cname="${cname%$'\r'}"
+                cpath="$(dirname "$saved_file")"
+                ;;
+            docker:nginx)
+                cname="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i nginx | grep -v vpn-edge-nginx | head -1)"
+                cname="${cname%$'\r'}"
+                ;;
+            docker:monolith)
+                cname="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i nginx | grep -v vpn-edge-nginx | head -1)"
+                cname="${cname%$'\r'}"
+                cpath="$saved_file"
+                ;;
+            host:nginx)
+                cpath="$saved_file"
+                ;;
+        esac
+        local csrc; csrc="none"
+        if [[ -n "$cname" ]]; then
+            csrc=$(_vgw_detect_cert_source "$cname")
+            csrc="${csrc%$'\r'}"
+        fi
+        _vgw_nginx_inject_auto "${saved_type}" "$cname" "$cpath" "$csrc" "$current_domain" "$https_port" || true
     fi
 }
 
