@@ -1053,6 +1053,7 @@ _vgw_prepare_monolith_certs() {
     local persist_certs_dir; persist_certs_dir="$(_vgw_certs_dir)"
     
     mkdir -p "/etc/letsencrypt/live/${domain}"
+    chmod 755 "/etc/letsencrypt/live/${domain}" 2>/dev/null || true
     cp -f "${persist_certs_dir}/fullchain.pem" "/etc/letsencrypt/live/${domain}/fullchain.pem"
     cp -f "${persist_certs_dir}/privkey.pem" "/etc/letsencrypt/live/${domain}/privkey.pem"
     chmod 644 "/etc/letsencrypt/live/${domain}/fullchain.pem" "/etc/letsencrypt/live/${domain}/privkey.pem"
@@ -1252,7 +1253,29 @@ _vgw_resolve_ssl_paths() {
             cw_domain=$(basename "$csrc_cont")
             cw_clean="${cw_domain#\*.}" # Срезаем leading *. если есть
 
-            if [[ -n "$public_domain" ]] && [[ "$cw_clean" == "$public_domain" || "$public_domain" == *".${cw_clean}" ]]; then
+            local found_cw_match="0"
+            if [[ -n "$public_domain" && -n "$csrc_host" ]]; then
+                if [[ -d "${csrc_host}/${public_domain}" && -f "${csrc_host}/${public_domain}/fullchain.pem" ]]; then
+                    CERT="${csrc_cont}/${public_domain}/fullchain.pem"
+                    KEY="${csrc_cont}/${public_domain}/privkey.pem"
+                    VOLUME_NEEDED="0"
+                    CSRC_EFFECTIVE="certwarden"
+                    found_cw_match="1"
+                else
+                    local parent_domain; parent_domain=$(echo "$public_domain" | cut -d. -f2-)
+                    if [[ -n "$parent_domain" && -d "${csrc_host}/${parent_domain}" && -f "${csrc_host}/${parent_domain}/fullchain.pem" ]]; then
+                        CERT="${csrc_cont}/${parent_domain}/fullchain.pem"
+                        KEY="${csrc_cont}/${parent_domain}/privkey.pem"
+                        VOLUME_NEEDED="0"
+                        CSRC_EFFECTIVE="certwarden"
+                        found_cw_match="1"
+                    fi
+                fi
+            fi
+
+            if [[ "$found_cw_match" == "1" ]]; then
+                [[ "1" == "1" ]]
+            elif [[ -n "$public_domain" ]] && [[ "$cw_clean" == "$public_domain" || "$public_domain" == *".${cw_clean}" ]]; then
                 # ✅ certwarden обслуживает наш домен или является его Wildcard-родителем — используем напрямую
                 CERT="${csrc_cont}/fullchain.pem"
                 KEY="${csrc_cont}/privkey.pem"
@@ -1864,6 +1887,8 @@ PY
                 printf_error "nginx -t в контейнере ОШИБКА! Откатываю..."
                 warn "Вывод nginx -t:"
                 echo "$nginx_test_output" | head -20 | sed 's/^/  /'
+                warn "Логи контейнера ${cname} (последние 30 строк):"
+                docker logs "$cname" 2>&1 | tail -n 30 | sed 's/^/  /'
                 rm -f "$conf_host"
                 if [[ "$is_templates" -eq 1 ]]; then
                     docker exec "$cname" rm -f "/etc/nginx/conf.d/80-bedolaga.conf" 2>/dev/null
@@ -1980,12 +2005,11 @@ server_block = f'''
         set_real_ip_from unix:;
         real_ip_header proxy_protocol;
 
-        access_log /var/log/nginx/bedolaga_access.log;
-        error_log /var/log/nginx/bedolaga_error.log;
+        access_log /var/log/nginx/access.log;
+        error_log /var/log/nginx/error.log;
 
         ssl_certificate     "{ssl_cert_path}/fullchain.pem";
         ssl_certificate_key "{ssl_cert_path}/privkey.pem";
-        ssl_trusted_certificate "{ssl_cert_path}/fullchain.pem";
 
         ssl_protocols TLSv1.2 TLSv1.3;
         ssl_session_cache shared:SSL:10m;
@@ -2067,6 +2091,8 @@ PY
                 printf_error "nginx -t в контейнере ОШИБКА! Откатываю..."
                 warn "Вывод nginx -t:"
                 echo "$nginx_test_output" | head -20 | sed 's/^/  /'
+                warn "Логи контейнера ${cname} (последние 30 строк):"
+                docker logs "$cname" 2>&1 | tail -n 30 | sed 's/^/  /'
                 [[ -f "${cpath}.bak" ]] && cp -f "${cpath}.bak" "$cpath"
                 if [[ -n "$compose_file" && -n "$svc_name" ]]; then
                     ( cd "$compose_dir" && $dc_cmd up -d --force-recreate "$svc_name" 2>&1 ) || true
