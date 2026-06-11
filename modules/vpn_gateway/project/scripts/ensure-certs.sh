@@ -174,10 +174,10 @@ CERTBOT_OK=0
 # Если в архиве есть валидный сертификат, восстанавливаем его вместо очистки.
 for base_le in "/etc/letsencrypt" "${LE_DIR}"; do
   if [[ -d "${base_le}/live/${EDGE_DOMAIN}" ]]; then
-    local live_cert="${base_le}/live/${EDGE_DOMAIN}/fullchain.pem"
-    local live_key="${base_le}/live/${EDGE_DOMAIN}/privkey.pem"
+    live_cert="${base_le}/live/${EDGE_DOMAIN}/fullchain.pem"
+    live_key="${base_le}/live/${EDGE_DOMAIN}/privkey.pem"
     
-    local needs_clean=0
+    needs_clean=0
     if [[ ! -f "${base_le}/renewal/${EDGE_DOMAIN}.conf" ]]; then
       needs_clean=1
     elif is_cert_self_signed "${live_cert}"; then
@@ -186,10 +186,10 @@ for base_le in "/etc/letsencrypt" "${LE_DIR}"; do
     
     if [[ "${needs_clean}" -eq 1 ]]; then
       # Ищем валидный сертификат в архиве, чтобы восстановить
-      local archive_fullchain; archive_fullchain=$(ls -v "${base_le}/archive/${EDGE_DOMAIN}/fullchain"*.pem 2>/dev/null | tail -n 1 || echo "")
-      local archive_privkey; archive_privkey=$(ls -v "${base_le}/archive/${EDGE_DOMAIN}/privkey"*.pem 2>/dev/null | tail -n 1 || echo "")
+      archive_fullchain=$(ls -v "${base_le}/archive/${EDGE_DOMAIN}/fullchain"*.pem 2>/dev/null | tail -n 1 || echo "")
+      archive_privkey=$(ls -v "${base_le}/archive/${EDGE_DOMAIN}/privkey"*.pem 2>/dev/null | tail -n 1 || echo "")
       
-      local restored=0
+      restored=0
       if [[ -n "${archive_fullchain}" && -f "${archive_fullchain}" ]]; then
         if ! is_cert_self_signed "${archive_fullchain}" && openssl x509 -checkend 86400 -noout -in "${archive_fullchain}" &>/dev/null; then
           echo "[info] Найден валидный сертификат в архиве Let's Encrypt (${archive_fullchain}). Восстанавливаю symlinks в live..."
@@ -197,8 +197,8 @@ for base_le in "/etc/letsencrypt" "${LE_DIR}"; do
           ln -sf "../../archive/${EDGE_DOMAIN}/$(basename "${archive_fullchain}")" "${live_cert}"
           ln -sf "../../archive/${EDGE_DOMAIN}/$(basename "${archive_privkey}")" "${live_key}"
           
-          local archive_cert; archive_cert=$(ls -v "${base_le}/archive/${EDGE_DOMAIN}/cert"*.pem 2>/dev/null | tail -n 1 || echo "")
-          local archive_chain; archive_chain=$(ls -v "${base_le}/archive/${EDGE_DOMAIN}/chain"*.pem 2>/dev/null | tail -n 1 || echo "")
+          archive_cert=$(ls -v "${base_le}/archive/${EDGE_DOMAIN}/cert"*.pem 2>/dev/null | tail -n 1 || echo "")
+          archive_chain=$(ls -v "${base_le}/archive/${EDGE_DOMAIN}/chain"*.pem 2>/dev/null | tail -n 1 || echo "")
           [[ -n "${archive_cert}" ]] && ln -sf "../../archive/${EDGE_DOMAIN}/$(basename "${archive_cert}")" "${base_le}/live/${EDGE_DOMAIN}/cert.pem"
           [[ -n "${archive_chain}" ]] && ln -sf "../../archive/${EDGE_DOMAIN}/$(basename "${archive_chain}")" "${base_le}/live/${EDGE_DOMAIN}/chain.pem"
           restored=1
