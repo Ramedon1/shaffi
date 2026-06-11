@@ -189,11 +189,12 @@ cd "${ROOT_DIR}"
 mkdir -p "${ROOT_DIR}/edge"
 cat > "${ROOT_DIR}/edge/.env.edge" << ENVEOF
 EDGE_DOMAIN=${EDGE_DOMAIN}
+EDGE_ADDITIONAL_DOMAINS=${EDGE_ADDITIONAL_DOMAINS}
 EDGE_HTTP_PORT=${EDGE_HTTP_PORT}
 EDGE_HTTPS_PORT=${EDGE_HTTPS_PORT}
 ENVEOF
 
-EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml up -d --build
+EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml up -d --build --force-recreate edge-nginx
 
 # Выпуск сертификата через webroot-челлендж
 CERTBOT_OK=0
@@ -318,7 +319,7 @@ else
 fi
 chmod 600 "${PRIVKEY}"
 
-EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml restart edge-nginx
+EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml up -d --force-recreate edge-nginx
 
 # Сохраняем сертификаты в персистентное хранилище — переживут git pull и пересоздание контейнеров
 PERSIST_CERTS_DIR="/etc/reshala-bedolaga/certs/${EDGE_DOMAIN}"

@@ -21,15 +21,22 @@ readarray -t CFG_VALUES < <(CFG_FILE="${CFG_FILE}" "${PYTHON}" - <<'PY'
 import os
 import yaml
 from pathlib import Path
-cfg = yaml.safe_load(Path(os.environ['CFG_FILE']).read_text(encoding='utf-8'))
-quick = cfg.get('quick_setup', {})
-project = cfg.get('project', {})
-edge = cfg.get('edge', {})
-print(quick.get('public_domain') or project.get('public_domain') or '')
+cfg = yaml.safe_load(Path(os.environ['CFG_FILE']).read_text(encoding='utf-8')) or {}
+quick = cfg.get('quick_setup', {}) or {}
+project = cfg.get('project', {}) or {}
+edge = cfg.get('edge', {}) or {}
+primary = quick.get('public_domain') or project.get('public_domain') or ''
+print(primary)
 print(quick.get('acme_email') or '')
 print(str(quick.get('acme_enabled', True)).lower())
 print(str(edge.get('http_port', 80)))
 print(str(edge.get('https_port', 443)))
+add_domains = set()
+for p in (cfg.get('landing', {}) or {}).get('pages', []):
+    for d in p.get('domains', []):
+        if d.strip() and d.strip() != primary:
+            add_domains.add(d.strip())
+print(" ".join(list(add_domains)))
 PY
 )
 
@@ -38,6 +45,7 @@ ACME_EMAIL="${CFG_VALUES[1]:-}"
 ACME_ENABLED="${CFG_VALUES[2]:-true}"
 EDGE_HTTP_PORT="${CFG_VALUES[3]:-80}"
 EDGE_HTTPS_PORT="${CFG_VALUES[4]:-443}"
+EDGE_ADDITIONAL_DOMAINS="${CFG_VALUES[5]:-}"
 
 if [[ -z "${EDGE_DOMAIN}" ]]; then
   echo "[error] Проверьте quick_setup.public_domain в config/gateway.yml" >&2
@@ -60,6 +68,7 @@ cd "${ROOT_DIR}"
 mkdir -p "${ROOT_DIR}/edge"
 cat > "${ROOT_DIR}/edge/.env.edge" << ENVEOF
 EDGE_DOMAIN=${EDGE_DOMAIN}
+EDGE_ADDITIONAL_DOMAINS=${EDGE_ADDITIONAL_DOMAINS}
 EDGE_HTTP_PORT=${EDGE_HTTP_PORT}
 EDGE_HTTPS_PORT=${EDGE_HTTPS_PORT}
 ENVEOF

@@ -1022,6 +1022,34 @@ _vgw_find_nginx_conf_dir() {
 _vgw_nginx_generate_conf() {
     local domain="$1" gw_port="$2" cert="${3:-}" key="${4:-}" csrc="${5:-}" cname="${6:-}"
     
+    # Получаем список дополнительных доменов для server_name
+    local py_bin; py_bin="$(_vgw_python)"
+    local cfg_file; cfg_file="$(_vgw_cfg_file)"
+    local add_domains=""
+    if [[ -f "$cfg_file" ]]; then
+        add_domains=$(CFG_FILE="$cfg_file" PRIMARY_DOM="$domain" "$py_bin" - <<'PY'
+import os, yaml
+from pathlib import Path
+try:
+    cfg = yaml.safe_load(Path(os.environ['CFG_FILE']).read_text(encoding='utf-8')) or {}
+    primary = os.environ['PRIMARY_DOM'].strip()
+    add_doms = set()
+    for p in (cfg.get('landing', {}) or {}).get('pages', []):
+        for d in p.get('domains', []):
+            if d.strip() and d.strip() != primary:
+                add_doms.add(d.strip())
+    print(" ".join(list(add_doms)))
+except Exception:
+    print("")
+PY
+)
+    fi
+
+    local server_names="${domain}"
+    if [[ -n "${add_domains}" ]]; then
+        server_names="${domain} ${add_domains}"
+    fi
+
     # Определяем IP хоста для проксирования из контейнера
     local upstream_host="127.0.0.1"
     if [[ -n "$cname" ]] && command -v docker &>/dev/null; then
@@ -1045,6 +1073,7 @@ _vgw_nginx_generate_conf() {
 # ================================================================
 # BEDOLAGA LANDING GATEWAY — proxy_pass конфиг
 # Домен:     ${domain}
+# Дополнительные домены: ${add_domains:-нет}
 # Gateway:   ${upstream_host}:${gw_port}
 # Создан:    $(date '+%Y-%m-%d %H:%M:%S')
 # ================================================================
@@ -1052,7 +1081,7 @@ _vgw_nginx_generate_conf() {
 server {
     listen 80;
     listen [::]:80;
-    server_name ${domain};
+    server_name ${server_names};
 
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/acme-challenge;
@@ -1065,7 +1094,7 @@ server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name ${domain};
+    server_name ${server_names};
 
 ${ssl_block}
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -3539,8 +3568,9 @@ vgw_manage_landing_pages() {
         menu_header "📄 Управление страницами лендинга" 64 "${C_CYAN}"
         
         # Информационная сноска
-        local default_offer
+        local default_offer public_domain
         default_offer=$(_vgw_read_quick_field default_offer 2>/dev/null || echo "не задан")
+        public_domain=$(_vgw_read_quick_field public_domain 2>/dev/null || echo "")
         echo -e "  ${C_GRAY}💡 Как это работает:${C_RESET}"
         echo -e "  • У вас есть кабинет (например: ${G}https://webcabinet.donmatteo.monster/buy/wl-lte${E})."
         echo -e "  • В поле ${B}Оффер (Target Offer)${E} указывается только код тарифа: ${G}wl-lte${E}."
@@ -3548,6 +3578,8 @@ vgw_manage_landing_pages() {
         echo -e "    и проксирует страницу оплаты вашего реального кабинета."
         echo -e "  • ${B}Дефолтный оффер (default_offer)${E} — резервный оффер панели (для редиректов ${C}/start${E})."
         echo -e "    Текущий дефолтный оффер: ${G}[ ${default_offer} ]${E}"
+        echo -e "  • Если у страницы указано ${C_GRAY}[Все домены]${E}, она будет открываться по всем доменам,"
+        echo -e "    включая ваш основной рекламный домен: ${G}${public_domain}${E}."
         echo -e "  ───────────────────────────────────────────────────────────────────"
         echo ""
 

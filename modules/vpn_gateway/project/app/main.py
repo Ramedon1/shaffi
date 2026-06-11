@@ -187,9 +187,9 @@ def create_app(config_path: str = "config/gateway.yml") -> FastAPI:
     for page in pages:
         pages_by_path[page.get("path", "/")].append(page)
 
-    for page_path, page_list in pages_by_path.items():
+    def make_render_page(plist: list):
         if landing_mode == "mirror_redirect":
-            async def render_page(request: Request, plist: list = page_list):
+            async def render_page(request: Request):
                 hostname = request.url.hostname or ""
                 matched_page = None
                 for pg in plist:
@@ -210,7 +210,7 @@ def create_app(config_path: str = "config/gateway.yml") -> FastAPI:
                     status_code=302,
                 )
         else:
-            async def render_page(request: Request, plist: list = page_list):
+            async def render_page(request: Request):
                 hostname = request.url.hostname or ""
                 matched_page = None
                 for pg in plist:
@@ -228,8 +228,10 @@ def create_app(config_path: str = "config/gateway.yml") -> FastAPI:
                 start_target = matched_page.get("primary_target", default_target)
                 start_link = f"/start?target={start_target}"
                 return templates.TemplateResponse(request, "landing.html", {"start_link": start_link, "page": matched_page})
+        return render_page
 
-        app.add_api_route(page_path, render_page, methods=["GET", "HEAD"], response_class=HTMLResponse)
+    for page_path, page_list in pages_by_path.items():
+        app.add_api_route(page_path, make_render_page(page_list), methods=["GET", "HEAD"], response_class=HTMLResponse)
 
     @app.api_route("/start", methods=["GET", "HEAD"])
     async def start(request: Request):
