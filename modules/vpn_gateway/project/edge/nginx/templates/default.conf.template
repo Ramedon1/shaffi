@@ -19,7 +19,7 @@ server {
 server {
     listen 80;
     listen [::]:80;
-    server_name ${EDGE_DOMAIN};
+    server_name ${EDGE_DOMAIN} ${EDGE_ADDITIONAL_DOMAINS};
 
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/acme-challenge;
@@ -35,7 +35,7 @@ server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name ${EDGE_DOMAIN};
+    server_name ${EDGE_DOMAIN} ${EDGE_ADDITIONAL_DOMAINS};
 
     ssl_certificate     /etc/nginx/certs/fullchain.pem;
     ssl_certificate_key /etc/nginx/certs/privkey.pem;

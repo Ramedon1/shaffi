@@ -3477,8 +3477,8 @@ print((data.get('quick_setup') or {}).get('default_offer', ''))
 PY2
 )
 
-    echo -e "  ${C}ID    Путь (Path)                     Оффер (Target Offer)  Статус${E}"
-    echo -e "  ${C}───────────────────────────────────────────────────────────────────${E}"
+    echo -e "  ${C}ID    Путь (Path)           Оффер (Target Offer)  Домены (Domains)         Статус${E}"
+    echo -e "  ${C}─────────────────────────────────────────────────────────────────────────────────────${E}"
     
     # Читаем страницы
     local pages_raw
@@ -3491,13 +3491,14 @@ pages = (data.get('landing') or {}).get('pages') or []
 for i, pg in enumerate(pages):
     path = pg.get('path', '')
     target = pg.get('mirror_target') or pg.get('primary_target') or ''
-    print(f"{i}|{path}|{target}")
+    domains = ",".join(pg.get('domains') or [])
+    print(f"{i}|{path}|{target}|{domains}")
 PY2
 )
 
     local count=0
     if [[ -n "$pages_raw" ]]; then
-        while IFS='|' read -r idx path target; do
+        while IFS='|' read -r idx path target domains; do
             local status_parts=()
             if [[ "$path" == "/" ]]; then
                 status_parts+=("${C_CYAN}🏠 Главная${E}")
@@ -3508,10 +3509,15 @@ PY2
             
             local status=""
             if [[ ${#status_parts[@]} -gt 0 ]]; then
-                status="[$(IFS=' '; echo "${status_parts[*]}")]"
+                status=" [$(IFS=' '; echo "${status_parts[*]}")]"
             fi
             
-            printf "  ${B}[%-2s]${E} %-30s %-20s %b\n" "$((idx + 1))" "$path" "$target" "$status"
+            local dom_desc="${C_GRAY}[Все домены]${E}"
+            if [[ -n "$domains" ]]; then
+                dom_desc="${C_YELLOW}(${domains//,/ }) ${E}"
+            fi
+            
+            printf "  ${B}[%-2s]${E} %-20s -> %-15s %-25b%b\n" "$((idx + 1))" "$path" "$target" "$dom_desc" "$status"
             count=$((count + 1))
         done <<< "$pages_raw"
     else
@@ -3523,6 +3529,7 @@ PY2
 
 vgw_manage_landing_pages() {
     local cfg_file; cfg_file="$(_vgw_cfg_file)"
+    local py_bin; py_bin="$(_vgw_python)"
     local W="$C_YELLOW" C="$C_CYAN" G="$C_GREEN" R="$C_RED" B="$C_BOLD" E="$C_RESET"
 
     [[ -f "$cfg_file" ]] || { printf_error "Конфигурационный файл не найден."; return 1; }
@@ -3557,6 +3564,7 @@ vgw_manage_landing_pages() {
         printf_menu_option "2" "✏️  Изменить оффер для существующей страницы" "${C_CYAN}"
         printf_menu_option "3" "🌟 Установить оффер страницы по умолчанию (default_offer)" "${C_CYAN}"
         printf_menu_option "4" "🗑️  Удалить страницу лендинга" "${C_CYAN}"
+        printf_menu_option "5" "🌐 Управление привязанными доменами" "${C_CYAN}"
         echo ""
         printf_menu_option "b" "🔙 Назад в меню маскировщика" "${C_CYAN}"
         print_separator "─" 64
@@ -3862,6 +3870,273 @@ PY2
                     info "Удаление отменено."
                 fi
                 wait_for_enter
+                ;;
+
+            5)
+                # 🌐 Управление привязанными доменами
+                clear
+                menu_header "🌐 Управление привязанными доменами" 64 "${C_CYAN}"
+                echo -e "  Вы можете привязать конкретные домены к выбранной странице лендинга."
+                echo -e "  Если у страницы нет привязанных доменов, она будет открываться по любым доменам."
+                echo ""
+                
+                # Показываем список страниц, чтобы пользователь видел ID
+                _vgw_print_pages_table
+                local count=$?
+                
+                local dom_num=""
+                while true; do
+                    dom_num=$(safe_read "Введите номер страницы (ID) для настройки доменов" "") || break
+                    [[ -z "$dom_num" ]] && break
+                    if ! [[ "$dom_num" =~ ^[0-9]+$ ]] || ((dom_num < 1 || dom_num > count)); then
+                        printf_error "Неверный номер страницы!"
+                        continue
+                    fi
+                    break
+                done
+                [[ -z "$dom_num" ]] && continue
+                
+                local dom_idx=$((dom_num - 1))
+                
+                # Показываем меню управления доменами для выбранной страницы
+                while true; do
+                    clear
+                    menu_header "🌐 Настройка доменов для страницы" 64 "${C_CYAN}"
+                    
+                    # Получаем текущие домены и путь страницы
+                    local page_info
+                    page_info=$(CFG_FILE="$cfg_file" EDIT_IDX="$dom_idx" "$py_bin" - <<'PY2'
+import os, yaml
+from pathlib import Path
+p=Path(os.environ['CFG_FILE'])
+data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+pages = data.get('landing', {}).get('pages', [])
+idx = int(os.environ['EDIT_IDX'])
+if 0 <= idx < len(pages):
+    pg = pages[idx]
+    path = pg.get('path', '')
+    target = pg.get('mirror_target') or pg.get('primary_target') or ''
+    domains = ",".join(pg.get('domains') or [])
+    print(f"{path}|{target}|{domains}")
+else:
+    print("INVALID")
+PY2
+)
+                    if [[ "$page_info" == "INVALID" ]]; then
+                        printf_error "Неверный индекс страницы."
+                        wait_for_enter
+                        break
+                    fi
+                    
+                    local p_path p_target p_domains
+                    IFS='|' read -r p_path p_target p_domains <<< "$page_info"
+                    
+                    echo -e "  Страница: ${G}${p_path}${E} -> ${W}${p_target}${E}"
+                    if [[ -z "$p_domains" ]]; then
+                        echo -e "  Текущие домены: ${C_GRAY}[Все домены (wildcard)]${E}"
+                    else
+                        echo -e "  Текущие домены: ${C_YELLOW}${p_domains//,/ , }${E}"
+                    fi
+                    echo ""
+                    
+                    echo -e "  ${C}Выберите действие:${E}"
+                    printf_menu_option "1" "➕ Добавить домен" "${C_CYAN}"
+                    printf_menu_option "2" "🗑️  Удалить домен" "${C_CYAN}"
+                    printf_menu_option "3" "🧹 Очистить все привязанные домены" "${C_CYAN}"
+                    echo ""
+                    printf_menu_option "b" "🔙 Вернуться к списку страниц" "${C_CYAN}"
+                    print_separator "─" 64
+                    
+                    local dom_choice; dom_choice=$(safe_read "Твой выбор" "") || break
+                    [[ "$dom_choice" =~ ^[bB]$ ]] && break
+                    
+                    case "$dom_choice" in
+                        1)
+                            # Добавить домен
+                            echo ""
+                            echo -e "  Введите имя домена, который хотите направить на эту страницу."
+                            echo -e "  Пример: ${G}promo-vpn.com${E} (без http:// и /)"
+                            echo ""
+                            local add_domain=""
+                            while true; do
+                                add_domain=$(safe_read "Домен" "") || break
+                                [[ -z "$add_domain" ]] && break
+                                if [[ "$add_domain" =~ [[:space:]] ]]; then
+                                    printf_error "Имя домена не должно содержать пробелы!"
+                                    continue
+                                fi
+                                # Валидация домена (regex)
+                                if ! [[ "$add_domain" =~ ^[a-zA-Z0-9][-a-zA-Z0-9]*(\.[a-zA-Z0-9][-a-zA-Z0-9]*)+$ ]]; then
+                                    printf_error "Неверный формат имени домена!"
+                                    continue
+                                fi
+                                break
+                            done
+                            [[ -z "$add_domain" ]] && continue
+                            
+                            info "Добавляю домен ${add_domain}..."
+                            local add_res
+                            add_res=$(CFG_FILE="$cfg_file" EDIT_IDX="$dom_idx" ADD_DOM="$add_domain" "$py_bin" - <<'PY2'
+import os, yaml
+from pathlib import Path
+p=Path(os.environ['CFG_FILE'])
+data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+pages = data.get('landing', {}).get('pages', [])
+idx = int(os.environ['EDIT_IDX'])
+new_dom = os.environ['ADD_DOM'].strip().lower()
+if 0 <= idx < len(pages):
+    pg = pages[idx]
+    doms = pg.setdefault('domains', [])
+    if new_dom in doms:
+        print("EXISTS")
+    else:
+        doms.append(new_dom)
+        p.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding='utf-8')
+        print("OK")
+else:
+    print("INVALID")
+PY2
+)
+                            if [[ "$add_res" == "OK" ]]; then
+                                printf_ok "Домен успешно добавлен!"
+                                _vgw_cfg_save_persistent
+                                _vgw_restart_gateway_only
+                                
+                                local proj_dir; proj_dir="$(_vgw_project_dir)"
+                                echo ""
+                                echo -e "  ${C_GRAY}💡 Чтобы получить SSL-сертификат для нового домена,${C_RESET}"
+                                echo -e "  ${C_GRAY}запустите перевыпуск сертификатов.${C_RESET}"
+                                if ask_yes_no "Запустить выпуск SSL-сертификатов сейчас? (y/n)" "y"; then
+                                    ( cd "$proj_dir" && ./scripts/ensure-certs.sh ) || warn "Не удалось автоматически выпустить Let's Encrypt."
+                                fi
+                            elif [[ "$add_res" == "EXISTS" ]]; then
+                                printf_error "Этот домен уже привязан к данной странице!"
+                            else
+                                printf_error "Не удалось привязать домен."
+                            fi
+                            wait_for_enter
+                            ;;
+                            
+                        2)
+                            # Удалить домен
+                            if [[ -z "$p_domains" ]]; then
+                                printf_error "К этой странице не привязано ни одного домена."
+                                wait_for_enter
+                                continue
+                            fi
+                            
+                            echo ""
+                            echo -e "  Список привязанных доменов:"
+                            local d_idx=1
+                            local IFS_save="$IFS"
+                            IFS=','
+                            for d in $p_domains; do
+                                echo -e "  [${d_idx}] $d"
+                                d_idx=$((d_idx + 1))
+                            done
+                            IFS="$IFS_save"
+                            
+                            local rm_num=""
+                            while true; do
+                                rm_num=$(safe_read "Введите номер домена для удаления" "") || break
+                                [[ -z "$rm_num" ]] && break
+                                if ! [[ "$rm_num" =~ ^[0-9]+$ ]] || ((rm_num < 1 || rm_num >= d_idx)); then
+                                    printf_error "Неверный номер домена!"
+                                    continue
+                                fi
+                                break
+                            done
+                            [[ -z "$rm_num" ]] && continue
+                            
+                            local rm_idx=$((rm_num - 1))
+                            info "Удаляю домен..."
+                            local rm_res
+                            rm_res=$(CFG_FILE="$cfg_file" EDIT_IDX="$dom_idx" DEL_IDX="$rm_idx" "$py_bin" - <<'PY2'
+import os, yaml
+from pathlib import Path
+p=Path(os.environ['CFG_FILE'])
+data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+pages = data.get('landing', {}).get('pages', [])
+idx = int(os.environ['EDIT_IDX'])
+del_idx = int(os.environ['DEL_IDX'])
+if 0 <= idx < len(pages):
+    pg = pages[idx]
+    doms = pg.get('domains', [])
+    if 0 <= del_idx < len(doms):
+        del doms[del_idx]
+        if not doms:
+            pg.pop('domains', None)
+        p.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding='utf-8')
+        print("OK")
+    else:
+        print("INVALID_DEL")
+else:
+    print("INVALID")
+PY2
+)
+                            if [[ "$rm_res" == "OK" ]]; then
+                                printf_ok "Домен успешно удален!"
+                                _vgw_cfg_save_persistent
+                                _vgw_restart_gateway_only
+                                
+                                local proj_dir; proj_dir="$(_vgw_project_dir)"
+                                echo ""
+                                echo -e "  ${C_GRAY}💡 Может потребоваться перевыпустить SSL-сертификаты,${C_RESET}"
+                                echo -e "  ${C_GRAY}чтобы исключить этот домен из конфигурации.${C_RESET}"
+                                if ask_yes_no "Запустить выпуск SSL-сертификатов сейчас? (y/n)" "n"; then
+                                    ( cd "$proj_dir" && ./scripts/ensure-certs.sh ) || warn "Не удалось автоматически выпустить Let's Encrypt."
+                                fi
+                            else
+                                printf_error "Не удалось удалить домен."
+                            fi
+                            wait_for_enter
+                            ;;
+                            
+                        3)
+                            # Очистить все домены
+                            if [[ -z "$p_domains" ]]; then
+                                printf_error "Список привязанных доменов уже пуст."
+                                wait_for_enter
+                                continue
+                            fi
+                            
+                            if ask_yes_no "Вы действительно хотите отвязать все домены от этой страницы? (Страница станет доступна по всем доменам) (y/n)" "n"; then
+                                info "Очищаю список доменов..."
+                                local clr_res
+                                clr_res=$(CFG_FILE="$cfg_file" EDIT_IDX="$dom_idx" "$py_bin" - <<'PY2'
+import os, yaml
+from pathlib import Path
+p=Path(os.environ['CFG_FILE'])
+data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+pages = data.get('landing', {}).get('pages', [])
+idx = int(os.environ['EDIT_IDX'])
+if 0 <= idx < len(pages):
+    pages[idx].pop('domains', None)
+    p.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding='utf-8')
+    print("OK")
+else:
+    print("INVALID")
+PY2
+)
+                                if [[ "$clr_res" == "OK" ]]; then
+                                    printf_ok "Все домены отвязаны!"
+                                    _vgw_cfg_save_persistent
+                                    _vgw_restart_gateway_only
+                                else
+                                    printf_error "Не удалось очистить список доменов."
+                                fi
+                            else
+                                info "Отменено."
+                            fi
+                            wait_for_enter
+                            ;;
+                            
+                        *)
+                            printf_error "Неверный пункт."
+                            sleep 1
+                            ;;
+                    esac
+                done
                 ;;
                 
             *)

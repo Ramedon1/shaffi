@@ -49,19 +49,27 @@ import os
 import yaml
 from pathlib import Path
 cfg_path = Path(os.environ["CFG_FILE"])
-cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
-quick = cfg.get("quick_setup", {})
-project = cfg.get("project", {})
-edge = cfg.get("edge", {})
-print(quick.get("public_domain") or project.get("public_domain") or "")
+cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+quick = cfg.get("quick_setup", {}) or {}
+project = cfg.get("project", {}) or {}
+edge = cfg.get("edge", {}) or {}
+primary = quick.get("public_domain") or project.get("public_domain") or ""
+print(primary)
 print(str(edge.get("http_port", 80)))
 print(str(edge.get("https_port", 443)))
+add_domains = set()
+for p in (cfg.get("landing", {}) or {}).get("pages", []):
+    for d in p.get("domains", []):
+        if d.strip() and d.strip() != primary:
+            add_domains.add(d.strip())
+print(" ".join(list(add_domains)))
 PY
 )
 
 EDGE_DOMAIN="${CFG_VALUES[0]:-}"
 EDGE_HTTP_PORT="${CFG_VALUES[1]:-80}"
 EDGE_HTTPS_PORT="${CFG_VALUES[2]:-443}"
+EDGE_ADDITIONAL_DOMAINS="${CFG_VALUES[3]:-}"
 
 if [[ -z "${EDGE_DOMAIN}" ]]; then
   echo "[error] Не задан public_domain в quick_setup или project в config/gateway.yml" >&2
@@ -70,6 +78,7 @@ fi
 
 cat > "${EDGE_ENV_FILE}" <<EOF
 EDGE_DOMAIN=${EDGE_DOMAIN}
+EDGE_ADDITIONAL_DOMAINS=${EDGE_ADDITIONAL_DOMAINS}
 EDGE_HTTP_PORT=${EDGE_HTTP_PORT}
 EDGE_HTTPS_PORT=${EDGE_HTTPS_PORT}
 EOF

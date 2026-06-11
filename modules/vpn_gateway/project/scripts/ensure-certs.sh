@@ -57,15 +57,22 @@ readarray -t CFG_VALUES < <(CFG_FILE="${CFG_FILE}" "${PYTHON}" - <<'PY'
 import os
 import yaml
 from pathlib import Path
-cfg = yaml.safe_load(Path(os.environ["CFG_FILE"]).read_text(encoding="utf-8"))
-quick = cfg.get("quick_setup", {})
-project = cfg.get("project", {})
-edge = cfg.get("edge", {})
-print(quick.get("public_domain") or project.get("public_domain") or "")
+cfg = yaml.safe_load(Path(os.environ["CFG_FILE"]).read_text(encoding="utf-8")) or {}
+quick = cfg.get("quick_setup", {}) or {}
+project = cfg.get("project", {}) or {}
+edge = cfg.get("edge", {}) or {}
+primary = quick.get("public_domain") or project.get("public_domain") or ""
+print(primary)
 print(quick.get("acme_email") or "")
 print(str(quick.get("acme_enabled", True)).lower())
 print(str(edge.get("http_port", 80)))
 print(str(edge.get("https_port", 443)))
+add_domains = set()
+for p in (cfg.get("landing", {}) or {}).get("pages", []):
+    for d in p.get("domains", []):
+        if d.strip() and d.strip() != primary:
+            add_domains.add(d.strip())
+print(" ".join(list(add_domains)))
 PY
 )
 
@@ -74,6 +81,7 @@ ACME_EMAIL="${CFG_VALUES[1]:-}"
 ACME_ENABLED="${CFG_VALUES[2]:-true}"
 EDGE_HTTP_PORT="${CFG_VALUES[3]:-80}"
 EDGE_HTTPS_PORT="${CFG_VALUES[4]:-443}"
+EDGE_ADDITIONAL_DOMAINS="${CFG_VALUES[5]:-}"
 
 if [[ -z "${EDGE_DOMAIN}" ]]; then
   echo "[error] Не задан public_domain в config/gateway.yml" >&2
@@ -110,11 +118,23 @@ if [[ -f "${FULLCHAIN}" && -f "${PRIVKEY}" ]]; then
     RENEW_OR_KEEP="--force-renewal"
   fi
 
-  if [[ "${cert_domain}" == "${EDGE_DOMAIN}" || "${cert_domain}" == "*.${EDGE_DOMAIN}" ]]; then
+  # Проверяем, присутствуют ли все привязанные домены в сертификате
+  cert_has_all_domains=1
+  for dom in "${EDGE_DOMAIN}" ${EDGE_ADDITIONAL_DOMAINS:-}; do
+    if [[ -n "${dom}" ]]; then
+      if ! openssl x509 -text -noout -in "${FULLCHAIN}" 2>/dev/null | grep -q "DNS:${dom}" && \
+         ! openssl x509 -noout -subject -in "${FULLCHAIN}" 2>/dev/null | grep -q "CN\s*=\s*${dom}\b"; then
+        cert_has_all_domains=0
+        break
+      fi
+    fi
+  done
+
+  if [[ "${cert_domain}" == "${EDGE_DOMAIN}" || "${cert_domain}" == "*.${EDGE_DOMAIN}" ]] && [[ "${cert_has_all_domains}" -eq 1 ]]; then
     if [[ "${is_self_signed}" -eq 1 ]]; then
       echo "[warn] Обнаружен временный самоподписанный сертификат для ${EDGE_DOMAIN}. Запускаю выпуск настоящего..."
     else
-      echo "[ok] Сертификаты уже существуют на хосте и соответствуют домену ${EDGE_DOMAIN}"
+      echo "[ok] Сертификаты уже существуют на хосте и соответствуют домену ${EDGE_DOMAIN} (все домены присутствуют)"
 
       # Проверяем что контейнер видит файлы через bind mount (защита от неправильного CWD при запуске)
       if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "vpn-edge-nginx"; then
@@ -132,7 +152,12 @@ if [[ -f "${FULLCHAIN}" && -f "${PRIVKEY}" ]]; then
       exit 0
     fi
   else
-    echo "[warn] Найден сертификат для другого домена (${cert_domain}). Перевыпускаю для ${EDGE_DOMAIN}..."
+    if [[ "${cert_has_all_domains}" -eq 0 ]]; then
+      echo "[warn] Найден сертификат, но он не содержит все привязанные дополнительные домены. Перевыпускаю..."
+      RENEW_OR_KEEP="--force-renewal"
+    else
+      echo "[warn] Найден сертификат для другого домена (${cert_domain}). Перевыпускаю для ${EDGE_DOMAIN}..."
+    fi
     rm -f "${FULLCHAIN}" "${PRIVKEY}"
   fi
 fi
@@ -216,11 +241,21 @@ for base_le in "/etc/letsencrypt" "${LE_DIR}"; do
   fi
 done
 
+# Собираем список доменов для Certbot
+d_args=("-d" "${EDGE_DOMAIN}")
+if [[ -n "${EDGE_ADDITIONAL_DOMAINS:-}" ]]; then
+  for dom in ${EDGE_ADDITIONAL_DOMAINS}; do
+    if [[ -n "${dom}" ]]; then
+      d_args+=("-d" "${dom}")
+    fi
+  done
+fi
+
 if command -v certbot > /dev/null 2>&1; then
   certbot certonly \
     --webroot \
     -w "${ACME_WEBROOT_DIR}" \
-    -d "${EDGE_DOMAIN}" \
+    "${d_args[@]}" \
     --cert-name "${EDGE_DOMAIN}" \
     --email "${ACME_EMAIL}" \
     --agree-tos \
@@ -234,7 +269,7 @@ else
     certbot/certbot:latest certonly \
       --webroot \
       -w /var/www/acme-challenge \
-      -d "${EDGE_DOMAIN}" \
+      "${d_args[@]}" \
       --cert-name "${EDGE_DOMAIN}" \
       --email "${ACME_EMAIL}" \
       --agree-tos \

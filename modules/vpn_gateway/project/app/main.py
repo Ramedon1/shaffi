@@ -182,21 +182,52 @@ def create_app(config_path: str = "config/gateway.yml") -> FastAPI:
 
     landing_mode = landing_cfg.get("mode", "template")
 
+    from collections import defaultdict
+    pages_by_path = defaultdict(list)
     for page in pages:
-        page_path = page.get("path", "/")
+        pages_by_path[page.get("path", "/")].append(page)
 
+    for page_path, page_list in pages_by_path.items():
         if landing_mode == "mirror_redirect":
-            async def render_page(request: Request, page_data: dict = page):
-                target = page_data.get("mirror_target") or page_data.get("primary_target") or default_target
+            async def render_page(request: Request, plist: list = page_list):
+                hostname = request.url.hostname or ""
+                matched_page = None
+                for pg in plist:
+                    domains = pg.get("domains") or []
+                    if hostname in domains:
+                        matched_page = pg
+                        break
+                if not matched_page:
+                    for pg in plist:
+                        if not pg.get("domains"):
+                            matched_page = pg
+                            break
+                if not matched_page:
+                    matched_page = plist[0]
+                target = matched_page.get("mirror_target") or matched_page.get("primary_target") or default_target
                 return RedirectResponse(
                     url=_build_start_destination(request, default_target=default_target, target_override=target),
                     status_code=302,
                 )
         else:
-            async def render_page(request: Request, page_data: dict = page):
-                start_target = page_data.get("primary_target", default_target)
+            async def render_page(request: Request, plist: list = page_list):
+                hostname = request.url.hostname or ""
+                matched_page = None
+                for pg in plist:
+                    domains = pg.get("domains") or []
+                    if hostname in domains:
+                        matched_page = pg
+                        break
+                if not matched_page:
+                    for pg in plist:
+                        if not pg.get("domains"):
+                            matched_page = pg
+                            break
+                if not matched_page:
+                    matched_page = plist[0]
+                start_target = matched_page.get("primary_target", default_target)
                 start_link = f"/start?target={start_target}"
-                return templates.TemplateResponse(request, "landing.html", {"start_link": start_link, "page": page_data})
+                return templates.TemplateResponse(request, "landing.html", {"start_link": start_link, "page": matched_page})
 
         app.add_api_route(page_path, render_page, methods=["GET", "HEAD"], response_class=HTMLResponse)
 
