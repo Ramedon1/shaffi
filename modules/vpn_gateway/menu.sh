@@ -3390,35 +3390,7 @@ vgw_reconfigure_wizard(){
     _vgw_preflight_check || return 1
     _vgw_prompt_and_apply_common reconfigure
     # После смены параметров — обновляем nginx конфиг если инжект был ранее
-    local persist_inj="${_VGW_PERSIST_DIR}/nginx_injection.env"
-    if [[ -f "$persist_inj" ]]; then
-        # Читаем сохранённый тип инжекта
-        local saved_type saved_file saved_domain
-        saved_type=$(grep '^NGINX_TYPE=' "$persist_inj" | cut -d= -f2-)
-        saved_file=$(grep '^CONF_FILE=' "$persist_inj" | cut -d= -f2-)
-        saved_domain=$(grep '^DOMAIN=' "$persist_inj" | cut -d= -f2-)
-        local cfg_file="$(_vgw_cfg_file)"
-        local py_bin; py_bin="$(_vgw_python)"
-        local new_domain; new_domain=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('quick_setup',{}).get('public_domain',''))" 2>/dev/null || echo "")
-        if [[ -n "$saved_type" && -n "$new_domain" ]]; then
-            local https_port
-            https_port=$(CFG_FILE="$cfg_file" "$py_bin" -c "import os,yaml; from pathlib import Path; c=yaml.safe_load(Path(os.environ['CFG_FILE']).read_text('utf-8')) or {}; print(c.get('edge',{}).get('https_port',443))" 2>/dev/null || echo "443")
-            info "Домен изменён — обновляю nginx конфиг..."
-            # Получаем cname и cpath из сохранённого файла
-            local cname="" cpath=""
-            case "$saved_type" in
-                docker:conf.d)
-                    cname="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i nginx | grep -v vpn-edge-nginx | head -1)"
-                    cpath="$(dirname "$saved_file")"
-                    ;;
-                docker:nginx)
-                    cname="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i nginx | grep -v vpn-edge-nginx | head -1)"
-                    ;;
-            esac
-            local csrc; csrc=$(_vgw_detect_cert_source "$cname")
-            _vgw_nginx_inject_auto "${saved_type}" "$cname" "$cpath" "$csrc" "$new_domain" "$https_port" || true
-        fi
-    fi
+    _vgw_nginx_injection_update_if_needed
     _vgw_show_landing_status
     _vgw_warn_merchant_return
 }
