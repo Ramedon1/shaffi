@@ -182,6 +182,13 @@ def create_app(config_path: str = "config/gateway.yml") -> FastAPI:
 
     landing_mode = landing_cfg.get("mode", "template")
 
+    allowed_domains = {cfg.raw.get("project", {}).get("public_domain", ""), cfg.raw.get("quick_setup", {}).get("public_domain", "")}
+    for pg in pages:
+        for d in pg.get("domains", []):
+            if d.strip():
+                allowed_domains.add(d.strip())
+    allowed_domains = {d for d in allowed_domains if d}
+
     from collections import defaultdict
     pages_by_path = defaultdict(list)
     for page in pages:
@@ -240,11 +247,10 @@ def create_app(config_path: str = "config/gateway.yml") -> FastAPI:
     @app.api_route("/_r/{token}", methods=["GET", "HEAD"])
     async def return_unwrap(token: str):
         fallback = cfg.raw["project"].get("fallback_url", "/")
-        public_domain = (cfg.raw.get("project", {}) or {}).get("public_domain", "")
         try:
             target = _b64url_decode(token)
             parsed = urlsplit(target)
-            if parsed.scheme not in ("http", "https") or parsed.netloc != public_domain:
+            if parsed.scheme not in ("http", "https") or parsed.netloc not in allowed_domains:
                 return RedirectResponse(url=fallback, status_code=302)
             return RedirectResponse(url=target, status_code=302)
         except Exception:
@@ -306,7 +312,8 @@ def create_app(config_path: str = "config/gateway.yml") -> FastAPI:
                 if h.lower() in _origin_headers:
                     response_headers.pop(h, None)
 
-        public_domain = (cfg.raw.get("project", {}) or {}).get("public_domain", "")
+        # Динамически определяем public_domain на основе текущего хоста запроса
+        public_domain = request.url.hostname or (cfg.raw.get("project", {}) or {}).get("public_domain", "")
         origin_domain = (cfg.raw.get("quick_setup", {}) or {}).get("origin_domain", "")
         hide_payment_return = cfg.raw.get("security", {}).get("hide_payment_return", False)
 
