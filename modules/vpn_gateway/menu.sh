@@ -657,13 +657,15 @@ PY
 _vgw_smart_nginx_detect() {
     local http_port="${1:-80}" https_port="${2:-443}"
 
-    # Если наш vpn-edge-nginx уже запущен — он сам занимает 80/443
-    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "vpn-edge-nginx"; then
-        echo "our_container"; return 0
-    fi
-
-    # Если gateway занимает 80/443 напрямую — только если порты реально свободны
+    # our_container: наш vpn-edge-nginx ЗАНИМАЕТ стандартные порты 80/443.
+    # В этом случае внешний nginx не нужен совсем — edge-nginx сам является frontend.
+    # Если gateway на нестандартных портах (8080/8443) — edge-nginx слушает их,
+    # а 80/443 заняты внешним nginx → нужно его найти и настроить.
     if [[ "$http_port" == "80" && "$https_port" == "443" ]]; then
+        if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "vpn-edge-nginx"; then
+            echo "our_container"; return 0
+        fi
+        # Порты 80/443 должны быть свободны для edge-nginx
         if _vgw_check_port_free "80" && _vgw_check_port_free "443"; then
             echo "free"; return 0
         fi
@@ -2547,20 +2549,60 @@ EOF
             echo -e "  ${G}  docker exec ${cname} nginx -s reload${E}"
             ;;
         docker:monolith:*)
-            echo -e "  ${R}${B}🐳 РУЧНЫЕ ШАГИ ДЛЯ МОНОЛИТНОГО ШАБЛОНА:${E}"
+            local project_dir; project_dir=$(_vgw_project_dir)
+            echo -e "  ${R}${B}🐳 РУЧНЫЕ ШАГИ ДЛЯ NGINX-НОДЫ (МОНОЛИТНЫЙ ШАБЛОН):${E}"
             echo ""
-            echo -e "  ${B}Шаг 1${E}: Добавьте домен в секцию stream -> map в файле:"
-            echo -e "  ${G}  ${cpath}${E}"
-            echo -e "  Добавьте строчку:"
+            echo -e "  ${W}${B}⚠️  ВАЖНО: порядок шагов критичен!${E}"
+            echo -e "  ${W}  Сначала — ACME-роутинг → перезагрузка nginx → выпуск сертификата.${E}"
+            echo -e "  ${W}  Certbot упадёт если nginx не маршрутизирует port 80 до запуска certbot!${E}"
+            echo ""
+            echo -e "  ${B}Шаг 1${E}: Откройте шаблон конфига:"
+            echo -e "  ${G}  nano ${cpath}${E}"
+            echo ""
+            echo -e "  ${B}Шаг 2${E}: В секции ${B}stream → map \$ssl_preread_server_name \$route_to${E} добавьте:"
             echo -e "  ${G}  ${domain}    unix:/dev/shm/nginx_http.sock;${E}"
             echo ""
-            echo -e "  ${B}Шаг 2${E}: Добавьте server-блоки в http-секцию в конце файла:"
-            echo "  ────────────────────────────────────────────────────"
-            echo "$conf_content" | sed 's/^/  /'
-            echo "  ────────────────────────────────────────────────────"
+            echo -e "  ${B}Шаг 3${E}: В секции ${B}http {}${E} добавьте HTTP server для ACME-challenge:"
+            echo -e "  ${G}  # --- BEDOLAGA ACME CHALLENGE для ${domain} ---${E}"
+            echo -e "  ${G}  server {${E}"
+            echo -e "  ${G}      listen unix:/dev/shm/nginx_http.sock proxy_protocol ssl;${E}"
+            echo -e "  ${G}      server_name ${domain};${E}"
+            echo -e "  ${G}      ssl_certificate     \"/etc/nginx/ssl/\${SSL_CERT_NAME}/fullchain.pem\";${E}"
+            echo -e "  ${G}      ssl_certificate_key \"/etc/nginx/ssl/\${SSL_CERT_NAME}/privkey.pem\";${E}"
+            echo -e "  ${G}      set_real_ip_from unix:; real_ip_header proxy_protocol;${E}"
+            echo -e "  ${G}      location ^~ /.well-known/acme-challenge/ {${E}"
+            echo -e "  ${G}          root /var/www/acme-challenge;${E}"
+            echo -e "  ${G}          try_files \\\$uri =404;${E}"
+            echo -e "  ${G}      }${E}"
+            echo -e "  ${G}      location / {${E}"
+            echo -e "  ${G}          proxy_pass https://127.0.0.1:${gport};${E}"
+            echo -e "  ${G}          proxy_http_version 1.1;${E}"
+            echo -e "  ${G}          proxy_ssl_verify off;${E}"
+            echo -e "  ${G}          proxy_set_header Host \\\$host;${E}"
+            echo -e "  ${G}          proxy_set_header X-Real-IP \\\$remote_addr;${E}"
+            echo -e "  ${G}          proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;${E}"
+            echo -e "  ${G}      }${E}"
+            echo -e "  ${G}  }${E}"
             echo ""
-            echo -e "  ${B}Шаг 3${E}: Перезагрузите контейнер Nginx"
+            echo -e "  ${B}Шаг 4${E}: Убедитесь что в docker-compose.yml ноды есть volume:"
+            echo -e "  ${G}  - ${project_dir}/edge/acme-challenge:/var/www/acme-challenge:ro${E}"
+            echo ""
+            echo -e "  ${B}Шаг 5${E}: Перезапустите контейнер nginx ноды:"
+            if [[ -n "$cname" ]]; then
+                local compose_hint; compose_hint=$(_vgw_find_compose_file "$cname" 2>/dev/null || echo "")
+                if [[ -n "$compose_hint" ]]; then
+                    local cdir; cdir=$(dirname "$compose_hint")
+                    echo -e "  ${G}  cd ${cdir}${E}"
+                fi
+                echo -e "  ${G}  docker compose up -d --force-recreate \$(docker inspect --format '{{index .Config.Labels \"com.docker.compose.service\"}}' ${cname} 2>/dev/null || echo ${cname})${E}"
+            fi
+            echo ""
+            echo -e "  ${B}Шаг 6${E}: ТОЛЬКО ПОСЛЕ этого — выпустите сертификат:"
+            echo -e "  ${G}  cd ${project_dir}${E}"
+            echo -e "  ${G}  bash scripts/ensure-certs.sh${E}"
+            echo -e "  ${W}  (или через меню [6] Сертификаты)${E}"
             ;;
+
 
         docker:hostnet:*)
             local cfgpath="${cpath}"

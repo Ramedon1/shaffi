@@ -156,7 +156,8 @@ ENVEOF
 EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml up -d --build
 
 # Выпуск сертификата через webroot-челлендж
-if command -v certbot >/dev/null 2>&1; then
+CERTBOT_OK=0
+if command -v certbot > /dev/null 2>&1; then
   certbot certonly \
     --webroot \
     -w "${ACME_WEBROOT_DIR}" \
@@ -165,10 +166,7 @@ if command -v certbot >/dev/null 2>&1; then
     --agree-tos \
     --non-interactive \
     --rsa-key-size 4096 \
-    --keep-until-expiring
-
-  cp "/etc/letsencrypt/live/${EDGE_DOMAIN}/fullchain.pem" "${FULLCHAIN}"
-  cp "/etc/letsencrypt/live/${EDGE_DOMAIN}/privkey.pem" "${PRIVKEY}"
+    --keep-until-expiring && CERTBOT_OK=1 || CERTBOT_OK=0
 else
   docker run --rm \
     -v "${ACME_WEBROOT_DIR}:/var/www/acme-challenge" \
@@ -181,16 +179,54 @@ else
       --agree-tos \
       --non-interactive \
       --rsa-key-size 4096 \
-      --keep-until-expiring
-
-  cp "${LE_DIR}/live/${EDGE_DOMAIN}/fullchain.pem" "${FULLCHAIN}"
-  cp "${LE_DIR}/live/${EDGE_DOMAIN}/privkey.pem" "${PRIVKEY}"
+      --keep-until-expiring && CERTBOT_OK=1 || CERTBOT_OK=0
 fi
+
+if [[ "${CERTBOT_OK}" -eq 0 ]]; then
+  echo ""
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "⚠️  CERTBOT НЕ СМОГ ВЫПУСТИТЬ СЕРТИФИКАТ (Connection refused)"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo ""
+  echo "Причина: LetsEncrypt не может достучаться до http://${EDGE_DOMAIN}:80"
+  echo "Это означает, что на порту 80 нет nginx который пробрасывает"
+  echo "путь /.well-known/acme-challenge/ к нашему gateway."
+  echo ""
+  echo "Что нужно сделать:"
+  echo ""
+  echo "  1. Если у вас remnawave-нода (монолитный nginx.conf.template):"
+  echo "     • Добавьте '${EDGE_DOMAIN}  unix:/dev/shm/nginx_http.sock;' в stream map"
+  echo "     • Добавьте server-блок в http {} с location ^~ /.well-known/acme-challenge/"
+  echo "     • Добавьте volume в docker-compose: $(dirname "${ACME_WEBROOT_DIR}"):/var/www/acme-challenge:ro"
+  echo "     • Перезапустите контейнер ноды"
+  echo ""
+  echo "  2. Если у вас хостовый nginx: добавьте location для ACME challenge"
+  echo "     и выполните: nginx -t && systemctl reload nginx"
+  echo ""
+  echo "  После настройки nginx — повторно выпустите сертификат:"
+  echo "  • Через меню [6] Сертификаты"
+  echo "  • Или: bash scripts/ensure-certs.sh"
+  echo ""
+  echo "  Стек работает с временным self-signed сертификатом (HTTPS с ошибкой в браузере)."
+  echo "═══════════════════════════════════════════════════════════════"
+  exit 0
+fi
+
+# Certbot успешно выпустил сертификат — копируем в edge/certs
+if command -v certbot > /dev/null 2>&1; then
+  cp "/etc/letsencrypt/live/${EDGE_DOMAIN}/fullchain.pem" "${FULLCHAIN}"
+  cp "/etc/letsencrypt/live/${EDGE_DOMAIN}/privkey.pem"   "${PRIVKEY}"
+else
+  cp "${LE_DIR}/live/${EDGE_DOMAIN}/fullchain.pem" "${FULLCHAIN}"
+  cp "${LE_DIR}/live/${EDGE_DOMAIN}/privkey.pem"   "${PRIVKEY}"
+fi
+chmod 600 "${PRIVKEY}"
 
 EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD -f docker-compose.yml -f docker-compose.edge.yml restart edge-nginx
 
 # Сохраняем сертификаты в персистентное хранилище — переживут git pull и пересоздание контейнеров
 PERSIST_CERTS_DIR="/etc/reshala-bedolaga/certs/${EDGE_DOMAIN}"
+
 if [[ -f "${FULLCHAIN}" && -f "${PRIVKEY}" ]]; then
   mkdir -p "${PERSIST_CERTS_DIR}" 2>/dev/null && \
     cp -f "${FULLCHAIN}" "${PERSIST_CERTS_DIR}/fullchain.pem" && \
