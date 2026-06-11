@@ -622,6 +622,20 @@ _vgw_auto_fix_ports() {
     local py_bin; py_bin="$(_vgw_python)"
     local new_http="${1:-8080}" new_https="${2:-8443}"
 
+    # Если gateway.yml не существует — создаём из шаблона автоматически.
+    if [[ ! -f "$cfg_file" ]]; then
+        local project_dir="$(_vgw_project_dir)"
+        local example_file="${project_dir}/config/gateway.example.yml"
+        if [[ -f "$example_file" ]]; then
+            info "config/gateway.yml не найден. Создаю из шаблона..."
+            cp "$example_file" "$cfg_file" || { printf_error "Не удалось скопировать шаблон: ${example_file} → ${cfg_file}"; return 1; }
+            ok "Создан config/gateway.yml из шаблона."
+        else
+            printf_error "Не найдены ни config/gateway.yml, ни config/gateway.example.yml в: ${project_dir}/config/"
+            return 1
+        fi
+    fi
+
     CFG_FILE="$cfg_file" NEW_HTTP="$new_http" NEW_HTTPS="$new_https" "$py_bin" - <<'PY'
 import os
 from pathlib import Path
@@ -1636,6 +1650,14 @@ PY
 # Авто-инжект nginx конфига. Возвращает 0 при успехе, 1 при ошибке.
 _vgw_nginx_inject_auto() {
     local ntype="$1" cname="${2:-}" cpath="${3:-}" csrc="${4:-none}" domain="$5" gport="$6"
+    
+    ntype="${ntype%$'\r'}"
+    cname="${cname%$'\r'}"
+    cpath="${cpath%$'\r'}"
+    csrc="${csrc%$'\r'}"
+    domain="${domain%$'\r'}"
+    gport="${gport%$'\r'}"
+
     local cert="" key=""
 
     # ── Очистка сиротских конфигураций старого домена ──────────────────
@@ -1909,6 +1931,10 @@ PY
             ;;
 
         docker:monolith|docker:monolith:*)
+            # Очищаем от возможных символов перевода строки \r из Windows-окружения
+            domain="${domain%$'\r'}"
+            gport="${gport%$'\r'}"
+
             # ── Шаг 0.5: Убеждаемся, что сертификаты УЖЕ лежат на хосте ──
             _vgw_check_our_certs_exist "$domain"
             _vgw_prepare_monolith_certs "$domain"
@@ -1930,6 +1956,7 @@ PY
                     upstream_host="$gw_ip"
                 fi
             fi
+            upstream_host="${upstream_host%$'\r'}"
 
             # Путь к сертификату внутри контейнера Nginx
             local monolith_cert_path
@@ -1938,6 +1965,7 @@ PY
             else
                 monolith_cert_path=$(dirname "$CERT")
             fi
+            monolith_cert_path="${monolith_cert_path%$'\r'}"
 
             # Создаём бэкап nginx.conf.template перед инъекцией
             if [[ ! -f "${cpath}.bak" ]]; then
@@ -1949,11 +1977,11 @@ PY
             inject_res=$("$(_vgw_python)" - "$cpath" "$domain" "$upstream_host" "$gport" "$monolith_cert_path" <<'PY'
 import sys, re
 
-filepath = sys.argv[1]
-domain = sys.argv[2]
-upstream_ip = sys.argv[3]
-upstream_port = sys.argv[4]
-ssl_cert_path = sys.argv[5]
+filepath = sys.argv[1].strip()
+domain = sys.argv[2].strip()
+upstream_ip = sys.argv[3].strip()
+upstream_port = sys.argv[4].strip()
+ssl_cert_path = sys.argv[5].strip()
 
 with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
     content = f.read()
@@ -2277,6 +2305,14 @@ PY
 # Генерирует точную инструкцию для ручной установки под любой тип nginx
 _vgw_nginx_manual_guide() {
     local ntype="$1" cname="${2:-}" cpath="${3:-}" csrc="${4:-none}" domain="$5" gport="$6"
+    
+    ntype="${ntype%$'\r'}"
+    cname="${cname%$'\r'}"
+    cpath="${cpath%$'\r'}"
+    csrc="${csrc%$'\r'}"
+    domain="${domain%$'\r'}"
+    gport="${gport%$'\r'}"
+
     local W="$C_YELLOW" C="$C_CYAN" G="$C_GREEN" R="$C_RED" B="$C_BOLD" E="$C_RESET"
 
     local csrc_type="none" csrc_host="" csrc_container=""
