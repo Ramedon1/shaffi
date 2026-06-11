@@ -79,6 +79,9 @@ routing:
     - name: cabinet-assets
       match: "/assets/*"
       upstream_pool: cabinet_pool
+    - name: cabinet-fonts
+      match: "/fonts/*"
+      upstream_pool: cabinet_pool
     - name: cabinet-api
       match: "/api/*"
       upstream_pool: cabinet_pool
