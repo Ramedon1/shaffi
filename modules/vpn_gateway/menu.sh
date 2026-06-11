@@ -3462,6 +3462,65 @@ vgw_toggle_hide_payment_return() {
     fi
 }
 
+_vgw_print_pages_table() {
+    local cfg_file; cfg_file="$(_vgw_cfg_file)"
+    local py_bin; py_bin="$(_vgw_python)"
+    local W="$C_YELLOW" C="$C_CYAN" G="$C_GREEN" R="$C_RED" B="$C_BOLD" E="$C_RESET"
+    
+    local default_offer
+    default_offer=$(CFG_FILE="$cfg_file" "$py_bin" - <<'PY2'
+import os, yaml
+from pathlib import Path
+p=Path(os.environ['CFG_FILE'])
+data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+print((data.get('quick_setup') or {}).get('default_offer', ''))
+PY2
+)
+
+    echo -e "  ${C}ID    Путь (Path)                     Оффер (Target Offer)  Статус${E}"
+    echo -e "  ${C}───────────────────────────────────────────────────────────────────${E}"
+    
+    # Читаем страницы
+    local pages_raw
+    pages_raw=$(CFG_FILE="$cfg_file" "$py_bin" - <<'PY2'
+import os, yaml
+from pathlib import Path
+p=Path(os.environ['CFG_FILE'])
+data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+pages = (data.get('landing') or {}).get('pages') or []
+for i, pg in enumerate(pages):
+    path = pg.get('path', '')
+    target = pg.get('mirror_target') or pg.get('primary_target') or ''
+    print(f"{i}|{path}|{target}")
+PY2
+)
+
+    local count=0
+    if [[ -n "$pages_raw" ]]; then
+        while IFS='|' read -r idx path target; do
+            local status_parts=()
+            if [[ "$path" == "/" ]]; then
+                status_parts+=("${C_CYAN}🏠 Главная${E}")
+            fi
+            if [[ "$target" == "$default_offer" ]]; then
+                status_parts+=("${G}🌟 Дефолтный оффер${E}")
+            fi
+            
+            local status=""
+            if [[ ${#status_parts[@]} -gt 0 ]]; then
+                status="[$(IFS=' '; echo "${status_parts[*]}")]"
+            fi
+            
+            printf "  ${B}[%-2s]${E} %-30s %-20s %b\n" "$((idx + 1))" "$path" "$target" "$status"
+            count=$((count + 1))
+        done <<< "$pages_raw"
+    else
+        echo -e "  ${R}Страницы не найдены в конфигурации.${E}"
+    fi
+    echo ""
+    return "$count"
+}
+
 vgw_manage_landing_pages() {
     local cfg_file; cfg_file="$(_vgw_cfg_file)"
     local W="$C_YELLOW" C="$C_CYAN" G="$C_GREEN" R="$C_RED" B="$C_BOLD" E="$C_RESET"
@@ -3473,60 +3532,24 @@ vgw_manage_landing_pages() {
         menu_header "📄 Управление страницами лендинга" 64 "${C_CYAN}"
         
         # Информационная сноска
-        echo -e "  ${C_GRAY}💡 Информация:${C_RESET}"
-        echo -e "  • ${B}Главная страница (/) ${E}— корневой адрес вашего сайта."
-        echo -e "  • ${B}Дефолтный оффер (default_offer)${E} — глобальный резервный оффер."
-        echo -e "    Он используется для системных перенаправлений на пути ${C}/start${E}."
+        local default_offer
+        default_offer=$(_vgw_read_quick_field default_offer 2>/dev/null || echo "не задан")
+        echo -e "  ${C_GRAY}💡 Как это работает:${C_RESET}"
+        echo -e "  • У вас есть кабинет (например: ${G}https://webcabinet.donmatteo.monster/buy/wl-lte${E})."
+        echo -e "  • В поле ${B}Оффер (Target Offer)${E} указывается только код тарифа: ${G}wl-lte${E}."
+        echo -e "  • Шлюз при переходе на путь (Path) перенаправит клиента на ${G}/buy/<код_оффера>${E}"
+        echo -e "    и проксирует страницу оплаты вашего реального кабинета."
+        echo -e "  • ${B}Дефолтный оффер (default_offer)${E} — резервный оффер панели (для редиректов ${C}/start${E})."
+        echo -e "    Текущий дефолтный оффер: ${G}[ ${default_offer} ]${E}"
         echo -e "  ───────────────────────────────────────────────────────────────────"
         echo ""
 
         # 1. Показываем список страниц
         echo -e "  Текущие настроенные страницы лендинга:"
         echo ""
-        echo -e "  ${C}ID    Путь (Path)                     Оффер (Target Offer)  Статус${E}"
-        echo -e "  ${C}───────────────────────────────────────────────────────────────────${E}"
         
-        local py_bin; py_bin="$(_vgw_python)"
-        local pages_list
-        pages_list=$(CFG_FILE="$cfg_file" "$py_bin" - <<'PY2'
-import os, yaml
-from pathlib import Path
-p=Path(os.environ['CFG_FILE'])
-data=yaml.safe_load(p.read_text(encoding='utf-8')) or {}
-default_offer = (data.get('quick_setup') or {}).get('default_offer', '')
-pages = (data.get('landing') or {}).get('pages') or []
-for i, pg in enumerate(pages):
-    path = pg.get('path', '')
-    target = pg.get('mirror_target') or pg.get('primary_target') or ''
-    is_default = "1" if target == default_offer else "0"
-    is_root = "1" if path == "/" else "0"
-    print(f"{i}|{path}|{target}|{is_default}|{is_root}")
-PY2
-)
-        
-        local count=0
-        if [[ -n "$pages_list" ]]; then
-            while IFS='|' read -r idx path target is_default is_root; do
-                local status_parts=()
-                if [[ "$is_root" == "1" ]]; then
-                    status_parts+=("${C_CYAN}🏠 Главная${E}")
-                fi
-                if [[ "$is_default" == "1" ]]; then
-                    status_parts+=("${G}🌟 Дефолтный оффер${E}")
-                fi
-                
-                local status=""
-                if [[ ${#status_parts[@]} -gt 0 ]]; then
-                    status="[$(IFS=' '; echo "${status_parts[*]}")]"
-                fi
-                
-                printf "  ${B}[%-2s]${E} %-30s %-20s %b\n" "$((idx + 1))" "$path" "$target" "$status"
-                count=$((count + 1))
-            done <<< "$pages_list"
-        else
-            echo -e "  ${R}Страницы не найдены в конфигурации.${E}"
-        fi
-        echo ""
+        _vgw_print_pages_table
+        local count=$?
         
         # 2. Выводим опции меню управления
         echo -e "  ${C}Доступные действия:${E}"
@@ -3630,6 +3653,10 @@ PY2
                 echo -e "  Сам адрес (путь) останется прежним, но клиенты пойдут на новый оффер."
                 echo ""
                 
+                # Показываем список страниц, чтобы пользователь видел ID
+                _vgw_print_pages_table
+                local count=$?
+                
                 local edit_num=""
                 while true; do
                     edit_num=$(safe_read "Введите номер страницы (ID) для изменения оффера" "") || break
@@ -3712,6 +3739,10 @@ PY2
                 echo -e "  2. На специальном пути ${G}/start${E} (служит для редиректов оплаты)."
                 echo ""
                 
+                # Показываем список страниц, чтобы пользователь видел ID
+                _vgw_print_pages_table
+                local count=$?
+                
                 local def_num=""
                 while true; do
                     def_num=$(safe_read "Введите номер страницы (ID), оффер которой хотите сделать дефолтным" "") || break
@@ -3773,6 +3804,10 @@ PY2
                 echo -e "  больше не смогут открыть лендинг (будет показываться ошибка 404/перенаправление)."
                 echo -e "  ${R}${B}Внимание:${E} Главную страницу ${G}/${E} удалить нельзя."
                 echo ""
+                
+                # Показываем список страниц, чтобы пользователь видел ID
+                _vgw_print_pages_table
+                local count=$?
                 
                 local del_num=""
                 while true; do
