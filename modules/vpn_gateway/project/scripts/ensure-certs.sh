@@ -157,6 +157,18 @@ EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD 
 
 # Выпуск сертификата через webroot-челлендж
 CERTBOT_OK=0
+
+# Очищаем временную папку live, если нет конфигурации продления renewal,
+# чтобы предотвратить ошибку Certbot "live directory exists".
+if [[ -d "/etc/letsencrypt/live/${EDGE_DOMAIN}" && ! -f "/etc/letsencrypt/renewal/${EDGE_DOMAIN}.conf" ]]; then
+  echo "[info] Обнаружена временная папка live без renewal-конфига на хосте. Очищаю..."
+  rm -rf "/etc/letsencrypt/live/${EDGE_DOMAIN}" "/etc/letsencrypt/archive/${EDGE_DOMAIN}" 2>/dev/null || true
+fi
+if [[ -d "${LE_DIR}/live/${EDGE_DOMAIN}" && ! -f "${LE_DIR}/renewal/${EDGE_DOMAIN}.conf" ]]; then
+  echo "[info] Обнаружена временная папка live без renewal-конфига в edge/letsencrypt. Очищаю..."
+  rm -rf "${LE_DIR}/live/${EDGE_DOMAIN}" "${LE_DIR}/archive/${EDGE_DOMAIN}" 2>/dev/null || true
+fi
+
 if command -v certbot > /dev/null 2>&1; then
   certbot certonly \
     --webroot \
