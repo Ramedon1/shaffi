@@ -30,6 +30,29 @@ fi
 
 mkdir -p "${CERTS_DIR}" "${ACME_WEBROOT_DIR}" "${LE_DIR}"
 
+is_cert_self_signed() {
+  local cert_path="$1"
+  [[ -f "${cert_path}" ]] || return 1
+  
+  local cert_subject; cert_subject=$(openssl x509 -noout -subject -in "${cert_path}" 2>/dev/null || echo "")
+  local cert_issuer; cert_issuer=$(openssl x509 -noout -issuer -in "${cert_path}" 2>/dev/null || echo "")
+  [[ -z "${cert_subject}" ]] && return 1
+  
+  local clean_subject; clean_subject=$(echo "${cert_subject}" | sed -E 's/^(subject|issuer)=\s*//')
+  local clean_issuer; clean_issuer=$(echo "${cert_issuer}" | sed -E 's/^(subject|issuer)=\s*//')
+  if [[ -n "${clean_subject}" && "${clean_subject}" == "${clean_issuer}" ]]; then
+    return 0 # self-signed
+  fi
+  
+  local sub_hash; sub_hash=$(openssl x509 -noout -subject_hash -in "${cert_path}" 2>/dev/null || echo "1")
+  local iss_hash; iss_hash=$(openssl x509 -noout -issuer_hash -in "${cert_path}" 2>/dev/null || echo "2")
+  if [[ "${sub_hash}" == "${iss_hash}" ]]; then
+    return 0 # self-signed
+  fi
+  
+  return 1 # not self-signed
+}
+
 readarray -t CFG_VALUES < <(CFG_FILE="${CFG_FILE}" "${PYTHON}" - <<'PY'
 import os
 import yaml
@@ -78,20 +101,9 @@ fi
 if [[ -f "${FULLCHAIN}" && -f "${PRIVKEY}" ]]; then
   # Проверяем, совпадает ли домен в сертификате с текущим EDGE_DOMAIN
   cert_domain=$(openssl x509 -noout -subject -in "${FULLCHAIN}" 2>/dev/null | sed -n 's/^.*CN\s*=\s*\(.*\)$/\1/p' || echo "")
-  cert_subject=$(openssl x509 -noout -subject -in "${FULLCHAIN}" 2>/dev/null || echo "")
-  cert_issuer=$(openssl x509 -noout -issuer -in "${FULLCHAIN}" 2>/dev/null || echo "")
 
   is_self_signed=0
-  # Очищаем префиксы subject= и issuer= для корректного сравнения (они отличаются в выводе openssl)
-  clean_subject=$(echo "${cert_subject}" | sed -E 's/^(subject|issuer)=\s*//')
-  clean_issuer=$(echo "${cert_issuer}" | sed -E 's/^(subject|issuer)=\s*//')
-  if [[ -n "${clean_subject}" && "${clean_subject}" == "${clean_issuer}" ]]; then
-    is_self_signed=1
-  fi
-  # Дополнительная проверка по хешам субъекта и издателя (OpenSSL-native)
-  sub_hash=$(openssl x509 -noout -subject_hash -in "${FULLCHAIN}" 2>/dev/null || echo "1")
-  iss_hash=$(openssl x509 -noout -issuer_hash -in "${FULLCHAIN}" 2>/dev/null || echo "2")
-  if [[ "${sub_hash}" == "${iss_hash}" ]]; then
+  if is_cert_self_signed "${FULLCHAIN}"; then
     is_self_signed=1
   fi
 
@@ -158,16 +170,48 @@ EDGE_HTTP_PORT="${EDGE_HTTP_PORT}" EDGE_HTTPS_PORT="${EDGE_HTTPS_PORT}" $DC_CMD 
 # Выпуск сертификата через webroot-челлендж
 CERTBOT_OK=0
 
-# Очищаем временную папку live, если нет конфигурации продления renewal,
-# чтобы предотвратить ошибку Certbot "live directory exists".
-if [[ -d "/etc/letsencrypt/live/${EDGE_DOMAIN}" && ! -f "/etc/letsencrypt/renewal/${EDGE_DOMAIN}.conf" ]]; then
-  echo "[info] Обнаружена временная папка live без renewal-конфига на хосте. Очищаю..."
-  rm -rf "/etc/letsencrypt/live/${EDGE_DOMAIN}" "/etc/letsencrypt/archive/${EDGE_DOMAIN}" 2>/dev/null || true
-fi
-if [[ -d "${LE_DIR}/live/${EDGE_DOMAIN}" && ! -f "${LE_DIR}/renewal/${EDGE_DOMAIN}.conf" ]]; then
-  echo "[info] Обнаружена временная папка live без renewal-конфига в edge/letsencrypt. Очищаю..."
-  rm -rf "${LE_DIR}/live/${EDGE_DOMAIN}" "${LE_DIR}/archive/${EDGE_DOMAIN}" 2>/dev/null || true
-fi
+# Очищаем временную или самоподписанную папку live, чтобы Certbot не пропускал выпуск.
+# Если в архиве есть валидный сертификат, восстанавливаем его вместо очистки.
+for base_le in "/etc/letsencrypt" "${LE_DIR}"; do
+  if [[ -d "${base_le}/live/${EDGE_DOMAIN}" ]]; then
+    local live_cert="${base_le}/live/${EDGE_DOMAIN}/fullchain.pem"
+    local live_key="${base_le}/live/${EDGE_DOMAIN}/privkey.pem"
+    
+    local needs_clean=0
+    if [[ ! -f "${base_le}/renewal/${EDGE_DOMAIN}.conf" ]]; then
+      needs_clean=1
+    elif is_cert_self_signed "${live_cert}"; then
+      needs_clean=1
+    fi
+    
+    if [[ "${needs_clean}" -eq 1 ]]; then
+      # Ищем валидный сертификат в архиве, чтобы восстановить
+      local archive_fullchain; archive_fullchain=$(ls -v "${base_le}/archive/${EDGE_DOMAIN}/fullchain"*.pem 2>/dev/null | tail -n 1 || echo "")
+      local archive_privkey; archive_privkey=$(ls -v "${base_le}/archive/${EDGE_DOMAIN}/privkey"*.pem 2>/dev/null | tail -n 1 || echo "")
+      
+      local restored=0
+      if [[ -n "${archive_fullchain}" && -f "${archive_fullchain}" ]]; then
+        if ! is_cert_self_signed "${archive_fullchain}" && openssl x509 -checkend 86400 -noout -in "${archive_fullchain}" &>/dev/null; then
+          echo "[info] Найден валидный сертификат в архиве Let's Encrypt (${archive_fullchain}). Восстанавливаю symlinks в live..."
+          mkdir -p "${base_le}/live/${EDGE_DOMAIN}"
+          ln -sf "../../archive/${EDGE_DOMAIN}/$(basename "${archive_fullchain}")" "${live_cert}"
+          ln -sf "../../archive/${EDGE_DOMAIN}/$(basename "${archive_privkey}")" "${live_key}"
+          
+          local archive_cert; archive_cert=$(ls -v "${base_le}/archive/${EDGE_DOMAIN}/cert"*.pem 2>/dev/null | tail -n 1 || echo "")
+          local archive_chain; archive_chain=$(ls -v "${base_le}/archive/${EDGE_DOMAIN}/chain"*.pem 2>/dev/null | tail -n 1 || echo "")
+          [[ -n "${archive_cert}" ]] && ln -sf "../../archive/${EDGE_DOMAIN}/$(basename "${archive_cert}")" "${base_le}/live/${EDGE_DOMAIN}/cert.pem"
+          [[ -n "${archive_chain}" ]] && ln -sf "../../archive/${EDGE_DOMAIN}/$(basename "${archive_chain}")" "${base_le}/live/${EDGE_DOMAIN}/chain.pem"
+          restored=1
+        fi
+      fi
+      
+      if [[ "${restored}" -eq 0 ]]; then
+        echo "[info] Очищаю временную/самоподписанную папку live и renewal-конфиг для ${EDGE_DOMAIN} в ${base_le}..."
+        rm -rf "${base_le}/live/${EDGE_DOMAIN}" "${base_le}/archive/${EDGE_DOMAIN}" "${base_le}/renewal/${EDGE_DOMAIN}.conf" 2>/dev/null || true
+      fi
+    fi
+  fi
+done
 
 if command -v certbot > /dev/null 2>&1; then
   certbot certonly \
@@ -246,6 +290,11 @@ if [[ -f "${FULLCHAIN}" && -f "${PRIVKEY}" ]]; then
     chmod 600 "${PERSIST_CERTS_DIR}/privkey.pem" && \
     echo "[ok] Сертификат сохранён в ${PERSIST_CERTS_DIR}" || \
     echo "[warn] Не удалось сохранить сертификат в ${PERSIST_CERTS_DIR}"
+fi
+
+if [[ -f "${FULLCHAIN}" ]]; then
+  echo "[info] Свойства применённого сертификата:"
+  openssl x509 -noout -subject -issuer -dates -in "${FULLCHAIN}" 2>/dev/null || true
 fi
 
 echo "[ok] Сертификат Let's Encrypt выпущен и применён для ${EDGE_DOMAIN}"

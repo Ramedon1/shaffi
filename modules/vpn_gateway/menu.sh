@@ -558,6 +558,28 @@ _vgw_menu_status_block() {
     local proto="https"
     [[ "$acme_enabled" == "false" ]] && proto="https*"
 
+    local ssl_cn="" ssl_issuer="" ssl_expires=""
+    local certs_dir; certs_dir="$(_vgw_certs_dir)"
+    local cert_file="${certs_dir}/fullchain.pem"
+    if [[ -f "$cert_file" ]]; then
+        if command -v openssl &>/dev/null; then
+            ssl_cn=$(openssl x509 -noout -subject -in "$cert_file" 2>/dev/null | sed -n 's/^.*CN\s*=\s*\(.*\)$/\1/p' || echo "")
+            local ssl_issuer_raw; ssl_issuer_raw=$(openssl x509 -noout -issuer -in "$cert_file" 2>/dev/null || echo "")
+            if [[ "$ssl_issuer_raw" == *"Let's Encrypt"* || "$ssl_issuer_raw" == *"R3"* || "$ssl_issuer_raw" == *"R10"* || "$ssl_issuer_raw" == *"R11"* ]]; then
+                ssl_issuer="Let's Encrypt"
+            elif [[ -n "$ssl_issuer_raw" ]]; then
+                if _vgw_is_cert_self_signed "$cert_file"; then
+                    ssl_issuer="Self-Signed ⚠️"
+                else
+                    ssl_issuer=$(echo "$ssl_issuer_raw" | sed -n 's/^.*CN\s*=\s*\(.*\)$/\1/p' || echo "Other")
+                fi
+            else
+                ssl_issuer="Unknown"
+            fi
+            ssl_expires=$(openssl x509 -noout -enddate -in "$cert_file" 2>/dev/null | cut -d= -f2 || echo "")
+        fi
+    fi
+
     echo ""
     echo -e "  ${C}╔══════════════════════════════════════════════════════════════╗${E}"
     echo -e "  ${C}║${E}  🌐  ${B}Статус лендинга${E}                                         ${C}║${E}"
@@ -566,6 +588,12 @@ _vgw_menu_status_block() {
     printf  "  ${C}║${E}  %-15s ${gw_color}%s${E}\n"  "Контейнер:"  "$gw_status"
     printf  "  ${C}║${E}  %-15s ${http_color}%s${E}\n" "Доступность:" "$http_ok"
     printf  "  ${C}║${E}  %-15s ${hide_color}%s${E}\n" "Hide return:"  "$hide_icon"
+    if [[ -n "$ssl_issuer" ]]; then
+        local iss_color="$G"
+        [[ "$ssl_issuer" == *"Self-Signed"* ]] && iss_color="$R"
+        printf  "  ${C}║${E}  %-15s ${iss_color}%s (CN: %s)${E}\n" "SSL Сертиф.:" "$ssl_issuer" "$ssl_cn"
+        printf  "  ${C}║${E}  %-15s %s\n" "SSL Истекает:" "$ssl_expires"
+    fi
     echo -e "  ${C}╚══════════════════════════════════════════════════════════════╝${E}"
     echo ""
 }
@@ -1343,6 +1371,30 @@ _vgw_resolve_ssl_paths() {
     esac
 }
 
+_vgw_is_cert_self_signed() {
+    local cert_path="$1"
+    [[ -f "$cert_path" ]] || return 1
+    
+    if command -v openssl &>/dev/null; then
+        local cert_subject; cert_subject=$(openssl x509 -noout -subject -in "$cert_path" 2>/dev/null || echo "")
+        local cert_issuer; cert_issuer=$(openssl x509 -noout -issuer -in "$cert_path" 2>/dev/null || echo "")
+        [[ -z "$cert_subject" ]] && return 1
+        
+        local clean_subject; clean_subject=$(echo "$cert_subject" | sed -E 's/^(subject|issuer)=\s*//')
+        local clean_issuer; clean_issuer=$(echo "$cert_issuer" | sed -E 's/^(subject|issuer)=\s*//')
+        if [[ -n "$clean_subject" && "$clean_subject" == "$clean_issuer" ]]; then
+            return 0 # self-signed
+        fi
+        
+        local sub_hash; sub_hash=$(openssl x509 -noout -subject_hash -in "$cert_path" 2>/dev/null || echo "1")
+        local iss_hash; iss_hash=$(openssl x509 -noout -issuer_hash -in "$cert_path" 2>/dev/null || echo "2")
+        if [[ "$sub_hash" == "$iss_hash" ]]; then
+            return 0 # self-signed
+        fi
+    fi
+    return 1 # not self-signed
+}
+
 # ── Проверяет что наши edge/certs/ содержат сертификат для public_domain
 # Предупреждает если файл не найден (acme ещё не выпустил / DNS не настроен)
 _vgw_check_our_certs_exist() {
@@ -1356,18 +1408,35 @@ _vgw_check_our_certs_exist() {
     if [[ -d "$key_file" ]]; then rm -rf "$key_file"; fi
 
     if [[ ! -f "$cert_file" || ! -s "$cert_file" || ! -f "$key_file" || ! -s "$key_file" ]]; then
-        info "Создаю временный самоподписанный SSL-сертификат для '${domain}'..."
-        mkdir -p "${certs_dir}"
-        chmod 755 "${certs_dir}" 2>/dev/null || true
-        if command -v openssl &>/dev/null; then
-            rm -f "${key_file}" "${cert_file}" 2>/dev/null || true
-            openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
-              -keyout "${key_file}" \
-              -out "${cert_file}" \
-              -subj "/CN=${domain:-localhost}" &>/dev/null || true
-            chmod 644 "${key_file}" "${cert_file}" 2>/dev/null || true
-        else
-            warn "  ⚠️  openssl не установлен на хосте! Не удалось создать временный сертификат."
+        # Пробуем найти существующие валидные сертификаты в других местах перед тем как создавать self-signed
+        local found_valid="0"
+        for p_dir in "/etc/letsencrypt/live/${domain}" "/etc/reshala-bedolaga/certs/${domain}" "${certs_dir}/../letsencrypt/live/${domain}"; do
+            if [[ -f "${p_dir}/fullchain.pem" && -f "${p_dir}/privkey.pem" ]]; then
+                if ! _vgw_is_cert_self_signed "${p_dir}/fullchain.pem"; then
+                    info "Найден существующий валидный сертификат в ${p_dir}. Копирую..."
+                    cp -f "${p_dir}/fullchain.pem" "$cert_file"
+                    cp -f "${p_dir}/privkey.pem" "$key_file"
+                    chmod 600 "$key_file"
+                    found_valid="1"
+                    break
+                fi
+            fi
+        done
+
+        if [[ "$found_valid" == "0" ]]; then
+            info "Создаю временный самоподписанный SSL-сертификат для '${domain}'..."
+            mkdir -p "${certs_dir}"
+            chmod 755 "${certs_dir}" 2>/dev/null || true
+            if command -v openssl &>/dev/null; then
+                rm -f "${key_file}" "${cert_file}" 2>/dev/null || true
+                openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
+                  -keyout "${key_file}" \
+                  -out "${cert_file}" \
+                  -subj "/CN=${domain:-localhost}" &>/dev/null || true
+                chmod 644 "${key_file}" "${cert_file}" 2>/dev/null || true
+            else
+                warn "  ⚠️  openssl не установлен на хосте! Не удалось создать временный сертификат."
+            fi
         fi
     else
         # Если файлы уже существуют, гарантируем правильные права доступа
@@ -2280,17 +2349,7 @@ PY
     local fullchain_path="$(_vgw_certs_dir)/fullchain.pem"
     local is_self_signed=0
     if [[ -f "$fullchain_path" ]]; then
-        local cert_subject; cert_subject=$(openssl x509 -noout -subject -in "$fullchain_path" 2>/dev/null || echo "")
-        local cert_issuer; cert_issuer=$(openssl x509 -noout -issuer -in "$fullchain_path" 2>/dev/null || echo "")
-        local clean_subject; clean_subject=$(echo "${cert_subject}" | sed -E 's/^(subject|issuer)=\s*//')
-        local clean_issuer; clean_issuer=$(echo "${cert_issuer}" | sed -E 's/^(subject|issuer)=\s*//')
-        if [[ -n "${clean_subject}" && "${clean_subject}" == "${clean_issuer}" ]]; then
-            is_self_signed=1
-        fi
-        # Нативный openssl хеш-чек
-        local sub_hash; sub_hash=$(openssl x509 -noout -subject_hash -in "$fullchain_path" 2>/dev/null || echo "1")
-        local iss_hash; iss_hash=$(openssl x509 -noout -issuer_hash -in "$fullchain_path" 2>/dev/null || echo "2")
-        if [[ "${sub_hash}" == "${iss_hash}" ]]; then
+        if _vgw_is_cert_self_signed "$fullchain_path"; then
             is_self_signed=1
         fi
     fi
@@ -2308,9 +2367,14 @@ PY
                 info "Конфигурация Nginx применена. Запускаю автоматический выпуск Let's Encrypt..."
                 ( cd "${proj_dir}" && ./scripts/ensure-certs.sh ) || warn "Не удалось автоматически выпустить Let's Encrypt."
                 
-                # Если у нас Docker-инжект, просим Nginx перезагрузить сертификаты
+                # Если у нас Docker-инжект, просим Nginx перезагрузить сертификаты.
+                # Для полной уверенности в сбросе SSL-кэша перезапускаем контейнер.
                 if [[ -n "$cname" ]]; then
-                    docker exec "$cname" nginx -s reload &>/dev/null || true
+                    info "Перезапускаю внешний Nginx контейнер (${cname}) для сброса SSL-кэша..."
+                    docker exec "$cname" nginx -t &>/dev/null && \
+                        docker exec "$cname" nginx -s reload &>/dev/null || \
+                        docker restart "$cname" &>/dev/null || true
+                    docker restart "$cname" &>/dev/null || true
                 else
                     systemctl reload nginx &>/dev/null || true
                 fi

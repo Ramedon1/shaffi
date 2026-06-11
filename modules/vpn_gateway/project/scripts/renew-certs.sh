@@ -126,10 +126,21 @@ if [[ -f "$PERSIST_INJ" ]]; then
   elif [[ "$saved_type" == docker:* ]]; then
     cname=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i nginx | grep -v vpn-edge-nginx | head -1)
     if [[ -n "$cname" ]]; then
+      if [[ "$saved_type" == "docker:monolith" ]]; then
+        echo "[info] Обновляю сертификаты для монолитного Nginx..."
+        mkdir -p "/etc/letsencrypt/live/${saved_domain}"
+        cp -f "${CERTS_DIR}/fullchain.pem" "/etc/letsencrypt/live/${saved_domain}/fullchain.pem"
+        cp -f "${CERTS_DIR}/privkey.pem"   "/etc/letsencrypt/live/${saved_domain}/privkey.pem"
+        chmod 644 "/etc/letsencrypt/live/${saved_domain}/fullchain.pem" "/etc/letsencrypt/live/${saved_domain}/privkey.pem"
+      fi
       if docker exec "$cname" nginx -t 2>/dev/null; then
-        docker exec "$cname" nginx -s reload 2>/dev/null && echo "[ok] Внешний docker-nginx (${cname}) успешно перезагружен" || echo "[warn] Не удалось перезагрузить внешний docker-nginx (${cname})"
+        docker exec "$cname" nginx -s reload 2>/dev/null && echo "[ok] Внешний docker-nginx (${cname}) успешно перезагружен" || {
+          echo "[warn] Не удалось перезагрузить через reload, перезапускаю контейнер..."
+          docker restart "$cname" &>/dev/null && echo "[ok] Внешний docker-nginx (${cname}) перезапущен" || echo "[warn] Не удалось перезапустить контейнер"
+        }
       else
-        echo "[error] Ошибка конфигурации внешнего docker-nginx (${cname})!"
+        echo "[error] Ошибка конфигурации внешнего docker-nginx (${cname})! Перезапускаю контейнер..."
+        docker restart "$cname" &>/dev/null && echo "[ok] Внешний docker-nginx (${cname}) перезапущен" || echo "[warn] Не удалось перезапустить контейнер"
       fi
     fi
   fi
