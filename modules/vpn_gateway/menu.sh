@@ -4108,13 +4108,10 @@ PY2
                             echo ""
                             echo -e "  Список привязанных доменов:"
                             local d_idx=1
-                            local IFS_save="$IFS"
-                            IFS=','
-                            for d in $p_domains; do
+                            for d in ${p_domains//,/ }; do
                                 echo -e "  [${d_idx}] $d"
                                 d_idx=$((d_idx + 1))
                             done
-                            IFS="$IFS_save"
                             
                             local rm_num=""
                             while true; do
