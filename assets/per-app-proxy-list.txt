@@ -128,3 +128,4 @@ com.vk.music
 ru.premier.app
 ru.smotrim.app
 ru.rkn.antizapret
+com.most.korpu
