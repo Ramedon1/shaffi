@@ -32,7 +32,7 @@ check_scanner_install() {
     rm -f "$SCANNER_DIR/out.csv" 2>/dev/null
 
     if [[ ! -f "$SCANNER_BIN" ]]; then
-        echo -e "${C_YELLOW}[*] Сканер не найден. Начинаю установку (Go 1.22+)...${C_RESET}"
+        echo -e "${C_YELLOW}[*] Сканер не найден. Начинаю установку (Go + сборка)...${C_RESET}"
         
         # ⚡ ЕДИНЫЙ СТАНДАРТ: Установка пакетов
         ensure_package "git"
@@ -40,8 +40,15 @@ check_scanner_install() {
         ensure_package "wget"
         
         # ⚡ ЕДИНЫЙ СТАНДАРТ: Умное скачивание Go
-        echo -e "${C_GRAY}--> Скачивание Golang...${C_RESET}"
-        run_cmd curl -sL --connect-timeout 120 -o "/tmp/go.tar.gz" "https://go.dev/dl/go1.22.1.linux-amd64.tar.gz" || return 1
+        # RealiTLScanner требует свежий Go (go.mod: go >= 1.26), поэтому берём
+        # актуальную версию динамически, а не фиксированную go1.22.1.
+        # Флаг -4: на многих нодах IPv6 отключён, а go.dev резолвится в IPv6 —
+        # без -4 загрузка зависает на недоступном IPv6-адресе.
+        GO_ARCH="amd64"; [ "$(uname -m)" = "aarch64" ] && GO_ARCH="arm64"
+        GO_VER="$(curl -4 -fsSL --connect-timeout 30 'https://go.dev/VERSION?m=text' | head -1)"
+        [[ "$GO_VER" == go1.* ]] || GO_VER="go1.26.4"   # запасная версия, если go.dev недоступен
+        echo -e "${C_GRAY}--> Скачивание Golang (${GO_VER}, ${GO_ARCH})...${C_RESET}"
+        run_cmd curl -4 -sL --connect-timeout 120 -o "/tmp/go.tar.gz" "https://go.dev/dl/${GO_VER}.linux-${GO_ARCH}.tar.gz" || return 1
         
         rm -rf /usr/local/go
         tar -C /usr/local -xzf /tmp/go.tar.gz
