@@ -8,21 +8,21 @@
 
 ---
 
-## Запуск
+## Установка
 
 ```bash
-# Клонировать репозиторий
-git clone https://github.com/your-org/shaffi /opt/shaffi
-cd /opt/shaffi
-
-# Сделать исполняемым
-chmod +x shaffi.sh
-
-# Запустить (запросит sudo сам, если нужно)
-./shaffi.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/your-org/shaffi/main/install.sh)
 ```
 
-Откроется TUI-меню шейпера. Далее всё через интерфейс: выбор интерфейса, режима, портов и скоростей.
+Скрипт скачает все файлы в `/opt/shaffi` и создаст системную команду `shaffi`.
+
+После установки:
+
+```bash
+shaffi
+```
+
+Откроется TUI-меню. Далее всё через интерфейс: выбор интерфейса, режима, портов и скоростей.
 
 ---
 
