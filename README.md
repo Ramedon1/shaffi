@@ -11,7 +11,7 @@
 ## Установка
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/your-org/shaffi/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/Ramedon1/shaffi/main/install.sh)
 ```
 
 Скрипт скачает все файлы в `/opt/shaffi` и создаст системную команду `shaffi`.
