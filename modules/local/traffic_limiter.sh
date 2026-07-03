@@ -1,45 +1,22 @@
 #!/bin/bash
-# ============================================================ #
-# ==             MODULE: TRAFFIC LIMITER v4.0.1             == #
-# ==          ENGINE: eBPF + EDT (Earliest Departure)       == #
-# ==          SUPPORT: Kernel 5.4+                          == #
-# ============================================================ #
-#
-# Отвечает за современное ограничение скорости с использованием
-# eBPF + EDT (Earliest Departure Time). 
-# Обеспечивает 0% коллизий, поддержку IPv6 и раздельный лимит DL/UL.
-#
-# ВЕРСИОНИРОВАНИЕ:
-#   v4.0.1 (08.04.2026) - Добавлена поддержка 5.15+, улучшена диагностика,
-#                         поиск bpftool и поддержка libbpf strict mode.
-#   v4.0.0 (07.04.2026) - Переход на eBPF/EDT, отказ от ifb0/tc-u32.
-#
-#  ( РОДИТЕЛЬ | КЛАВИША | НАЗВАНИЕ | ФУНКЦИЯ | ПОРЯДОК | ГРУППА | ОПИСАНИЕ )
-# @menu.manifest
-#
-# @item( main | 2 | 🚦 Шейпер трафика ${C_GREEN}(eBPF + EDT)${C_RESET} | show_traffic_limiter_menu | 2 | 0 | Умное ограничение скорости на базе eBPF. )
-#
+# traffic_limiter.sh — eBPF Traffic Shaper (EDT + Token Bucket), Multi-Rule v4.0.1
+# Engine: eBPF + EDT (Earliest Departure Time) | Kernel 5.4+
 
-[[ "${BASH_SOURCE[0]}" == "${0}" ]] && exit 1 # Защита от прямого запуска
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] && exit 1
 
-# Подключаем ядро и зависимости
 source "$SCRIPT_DIR/modules/core/common.sh"
 source "$SCRIPT_DIR/modules/core/dependencies.sh"
 source "$SCRIPT_DIR/modules/security/whitelist_manager.sh"
 
-# ============================================================ #
-# ==                  ГЛОБАЛЬНАЯ КОНФИГУРАЦИЯ               == #
-# ============================================================ #
-
 readonly TL_MODULE_VERSION="3.2 (HighLoad)"
-readonly TL_CONFIG_DIR="/etc/reshala/traffic_limiter"
+readonly TL_CONFIG_DIR="/etc/shaffi/traffic_limiter"
 readonly TL_BPF_SRC_PATH="${SCRIPT_DIR}/modules/local/shaper.bpf.c"
 readonly TL_BPF_OBJ_PATH="${TL_CONFIG_DIR}/shaper.bpf.o"
-readonly TL_CTRL_PY_PATH="${SCRIPT_DIR}/modules/local/reshala_ctrl.py"
-readonly TL_SERVICE_NAME="reshala-traffic-limiter.service"
+readonly TL_CTRL_PY_PATH="${SCRIPT_DIR}/modules/local/shaffi_ctrl.py"
+readonly TL_SERVICE_NAME="shaffi-traffic-limiter.service"
 readonly TL_SERVICE_PATH="/etc/systemd/system/${TL_SERVICE_NAME}"
-readonly TL_OLD_APPLY_SCRIPT="/usr/local/bin/reshala-traffic-limiter-apply.sh"
-readonly TL_BPF_PIN_DIR="/sys/fs/bpf/reshala"
+readonly TL_OLD_APPLY_SCRIPT="/usr/local/bin/shaffi-traffic-limiter-apply.sh"
+readonly TL_BPF_PIN_DIR="/sys/fs/bpf/shaffi"
 
 # Глобальные переменные
 IFACE=""
@@ -339,7 +316,7 @@ _tl_show_speed_reference() {
 
 _tl_show_shaper_intro() {
     echo -e "  ${C_CYAN}╔══════════════════════════════════════════════════════════╗${C_RESET}"
-    echo -e "  ${C_CYAN}║${C_RESET}  ${C_YELLOW}⚡ Reshala eBPF Traffic Shaper v3.2 (HighLoad)${C_RESET}"
+    echo -e "  ${C_CYAN}║${C_RESET}  ${C_YELLOW}⚡ Shaffi eBPF Traffic Shaper v3.2 (HighLoad)${C_RESET}"
     echo -e "  ${C_CYAN}╠══════════════════════════════════════════════════════════╣${C_RESET}"
     echo -e "  ${C_CYAN}║${C_RESET}  ${C_GRAY}Что это?${C_RESET}"
     echo -e "  ${C_CYAN}║${C_RESET}  Ограничитель скорости на базе ${C_YELLOW}eBPF + EDT${C_RESET} (Linux ядро)"
@@ -730,7 +707,7 @@ _tl_generate_ebpf_service_file() {
 
     cat <<EOF
 [Unit]
-Description=Reshala eBPF Traffic Limiter (Multi-Rule)
+Description=Shaffi eBPF Traffic Limiter (Multi-Rule)
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -775,7 +752,7 @@ ExecStartPre=/bin/bash -c '\
 
 # === ВОССТАНОВЛЕНИЕ ПРАВИЛ И БЕЛОГО СПИСКА ===
 ExecStart=${python_path} ${TL_CTRL_PY_PATH} --pin-dir ${PIN_MAPS} --rules-file ${TL_CONFIG_DIR}/rules.json restore
-ExecStartPost=-${python_path} ${TL_CTRL_PY_PATH} --pin-dir ${PIN_MAPS} whitelist-sync --file ${TL_CONFIG_DIR}/whitelist.txt /etc/reshala/global-whitelist.txt
+ExecStartPost=-${python_path} ${TL_CTRL_PY_PATH} --pin-dir ${PIN_MAPS} whitelist-sync --file ${TL_CONFIG_DIR}/whitelist.txt /etc/shaffi/global-whitelist.txt
 
 # === ОСТАНОВКА ===
 ExecStop=-/bin/bash -c "${rm_path} -rf ${TL_BPF_PIN_DIR}/*"
@@ -850,7 +827,7 @@ _tl_edit_whitelist() {
     clear; menu_header "🛡️ Белый список (Whitelist)"
     
     local whitelist_file="${TL_CONFIG_DIR}/whitelist.txt"
-    local global_file="/etc/reshala/global-whitelist.txt"
+    local global_file="/etc/shaffi/global-whitelist.txt"
     mkdir -p "${TL_CONFIG_DIR}"
 
     # --- УМНОЕ ПРЕДЛОЖЕНИЕ ГЛОБАЛЬНОГО СПИСКА ---

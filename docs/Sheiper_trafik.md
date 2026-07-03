@@ -1,4 +1,4 @@
-# 🚦 Шейпер трафика Reshala (eBPF + EDT) — Multi-Rule
+# 🚦 Шейпер трафика Shaffi (eBPF + EDT) — Multi-Rule
 
 > **Версия системы:** v4.0.1 (Multi-Rule)
 > **Движок:** eBPF + EDT (Earliest Departure Time)
@@ -255,14 +255,14 @@ IP: 9.9.9.9  ┘
 
 Все правила **автоматически сохраняются** в файл:
 ```
-/etc/reshala/traffic_limiter/rules.json
+/etc/shaffi/traffic_limiter/rules.json
 ```
 
 При рестарте сервиса (или перезагрузке сервера) правила **автоматически восстанавливаются** без участия пользователя.
 
 ```bash
 # Systemd при старте вызывает:
-reshala_ctrl.py restore
+shaffi_ctrl.py restore
 # → читает rules.json → применяет все правила в BPF-карты
 ```
 
@@ -293,45 +293,45 @@ reshala_ctrl.py restore
 
 ## 🛠️ Ручное управление (CLI)
 
-Контроллер `reshala_ctrl.py` можно запускать прямо из командной строки:
+Контроллер `shaffi_ctrl.py` можно запускать прямо из командной строки:
 
 ```bash
 # Посмотреть все правила
-python3 /opt/reshala/modules/local/reshala_ctrl.py \
-  --pin-dir /sys/fs/bpf/reshala/maps rules
+python3 modules/local/shaffi_ctrl.py \
+  --pin-dir /sys/fs/bpf/shaffi/maps rules
 
 # Добавить правило
-python3 /opt/reshala/modules/local/reshala_ctrl.py \
-  --pin-dir /sys/fs/bpf/reshala/maps \
+python3 modules/local/shaffi_ctrl.py \
+  --pin-dir /sys/fs/bpf/shaffi/maps \
   set --rule-id 0 --mode 1 --ports 443 --down 5 --up 5
 
 # Добавить динамическое правило
-python3 /opt/reshala/modules/local/reshala_ctrl.py \
-  --pin-dir /sys/fs/bpf/reshala/maps \
+python3 modules/local/shaffi_ctrl.py \
+  --pin-dir /sys/fs/bpf/shaffi/maps \
   set --rule-id 1 --mode 2 --ports 8443 \
       --down 3 --up 3 --pen 0.5 --burst 100 --win 10 --pen-sec 60
 
 # Добавить "Общее ограничение" (Shared)
-python3 /opt/reshala/modules/local/reshala_ctrl.py \
-  --pin-dir /sys/fs/bpf/reshala/maps \
+python3 modules/local/shaffi_ctrl.py \
+  --pin-dir /sys/fs/bpf/shaffi/maps \
   set --rule-id 2 --mode 3 --ports 2083 --down 100 --up 100
 
 # Удалить правило
-python3 /opt/reshala/modules/local/reshala_ctrl.py \
-  --pin-dir /sys/fs/bpf/reshala/maps \
+python3 modules/local/shaffi_ctrl.py \
+  --pin-dir /sys/fs/bpf/shaffi/maps \
   delete --rule-id 1
 
 # Статистика (топ-10)
-python3 /opt/reshala/modules/local/reshala_ctrl.py \
-  --pin-dir /sys/fs/bpf/reshala/maps status
+python3 modules/local/shaffi_ctrl.py \
+  --pin-dir /sys/fs/bpf/shaffi/maps status
 
 # Статистика по конкретному правилу
-python3 /opt/reshala/modules/local/reshala_ctrl.py \
-  --pin-dir /sys/fs/bpf/reshala/maps status --rule-id 0
+python3 modules/local/shaffi_ctrl.py \
+  --pin-dir /sys/fs/bpf/shaffi/maps status --rule-id 0
 
 # Полный список всех IP
-python3 /opt/reshala/modules/local/reshala_ctrl.py \
-  --pin-dir /sys/fs/bpf/reshala/maps status --full
+python3 modules/local/shaffi_ctrl.py \
+  --pin-dir /sys/fs/bpf/shaffi/maps status --full
 ```
 
 ---

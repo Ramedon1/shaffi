@@ -1,14 +1,8 @@
-#!/bin/bash
-# ============================================================ #
-# ==            ОБЩИЙ МОДУЛЬ (ЯЩИК С ИНСТРУМЕНТАМИ)         == #
-# ============================================================ #
-#
-# Здесь лежат общие функции, которые нужны всем остальным модулям.
-# Этот файл не запускается напрямую, а подключается (source).
-#
-[[ "${BASH_SOURCE[0]}" == "${0}" ]] && exit 1 # Защита от прямого запуска
+﻿#!/bin/bash
+# common.sh — общие функции (цвета, вывод, ввод, утилиты). Source-only.
 
-# Подключаем модуль управления зависимостями
+[[ "${BASH_SOURCE[0]}" == "${0}" ]] && exit 1
+
 if [ -f "${SCRIPT_DIR}/modules/core/dependencies.sh" ]; then
     source "${SCRIPT_DIR}/modules/core/dependencies.sh"
 fi
@@ -31,14 +25,14 @@ menu_header() {
 
 # Универсальный футер для меню
 menu_footer() {
-    local width="${1:-60}" # New: width argument, default to 60
-    local color="${2:-${C_CYAN}}" # New: color argument, default to C_CYAN
+    local width="${1:-60}" 
+    local color="${2:-${C_CYAN}}" 
     printf "%b\n" "${color}╚$(printf '%.0s═' $(seq 1 "$width"))${C_RESET}"
 }
 
 # Выводит вертикальную линию (например, "║")
 print_vertical_line() {
-    local color="${1:-${C_CYAN}}" # Default color to C_CYAN
+    local color="${1:-${C_CYAN}}" 
     printf "%b\n" "${color}║${C_RESET}"
 }
 
@@ -79,17 +73,17 @@ _get_visible_length() {
 
 # Универсальный разделитель
 print_separator() {
-    local char="${1:-=}" # Default to '='
-    local length="${2:-60}" # Default to 60 characters
+    local char="${1:-=}" 
+    local length="${2:-60}" 
     printf "%b%s%b\n" "${C_GRAY}" "$(printf "%*s" "$length" "" | tr ' ' "$char")" "${C_RESET}"
 }
 
 # Генерирует визуальный индикатор прогресса (возвращает строку)
 get_progress_bar_string() {
-    local percentage="$1" # 0-100
-    local bar_width="${2:-20}" # Default width of the bar
-    local color="${3:-${C_GREEN}}" # Default color for filled part
-    local empty_color="${4:-${C_GRAY}}" # Default color for empty part
+    local percentage="$1" 
+    local bar_width="${2:-20}" 
+    local color="${3:-${C_GREEN}}" 
+    local empty_color="${4:-${C_GRAY}}" 
 
     local filled_chars
     local empty_chars
@@ -137,7 +131,7 @@ print_key_value() {
 printf_menu_option() {
     local key="$1"
     local label="$2"
-    local color="${3:-${C_WHITE}}" # Default color to C_WHITE
+    local color="${3:-${C_WHITE}}" 
     debug_log "PRINT_MENU: KEY: ${key}, LABEL: ${label}"
     printf "   %b[%s] %b%b\n" "$color" "$key" "$label" "${C_RESET}"
 }
@@ -174,7 +168,7 @@ run_cmd() {
 
 # --- Обработка Ctrl+C (Trap Stack) ---
 declare -a TRAP_STACK
-declare -g _LAST_CTRLC_SIGNALED=0 # Global flag to indicate Ctrl+C was pressed
+declare -g _LAST_CTRLC_SIGNALED=0 
 
 push_trap() {
     local new_trap="$1"
@@ -208,7 +202,7 @@ trap_return() {
 }
 
 enable_graceful_ctrlc() {
-    # Trap just sets a flag. The caller must check _LAST_CTRLC_SIGNALED
+    
     push_trap 'printf "\n"; _LAST_CTRLC_SIGNALED=1;'
 }
 
@@ -410,39 +404,6 @@ validate_port() {
     return 1
 }
 
-# ============================================================ #
-# ==      ГЛОБАЛЬНЫЙ БЕЛЫЙ СПИСОК: ХЕЛПЕР ДЛЯ МОДУЛЕЙ       == #
-# ============================================================ #
-# API Глобального Белого Списка (Global Whitelist)
-#
-# Файл: /etc/reshala/global-whitelist.txt
-# Менеджер: modules/security/whitelist_manager.sh
-#
-# Доступные функции (после source whitelist_manager.sh):
-#
-#   global_whitelist_get_ips    — Получить массив IP (stdout)
-#     mapfile -t ips < <(global_whitelist_get_ips)
-#
-#   global_whitelist_count      — Количество IP (stdout)
-#     local count=$(global_whitelist_count)
-#
-#   global_whitelist_add_ip IP "Комментарий" — Добавить + синхронизировать
-#     global_whitelist_add_ip "1.2.3.4" "Мой сервер"
-#
-#   global_whitelist_remove_ip IP — Удалить + синхронизировать
-#     global_whitelist_remove_ip "1.2.3.4"
-#
-#   global_whitelist_sync_all   — Принудительная полная синхронизация
-#
-#   global_whitelist_offer "module_name" — Предложить пользователю
-#     if global_whitelist_offer "my_module"; then
-#         # Пользователь выбрал глобальный список
-#     fi
-#
-# Проверка доступности API:
-#   if command -v global_whitelist_get_ips &>/dev/null; then ...
-#
-# Хелпер для загрузки менеджера:
 global_whitelist_manager_load() {
     local manager_path="$SCRIPT_DIR/modules/security/whitelist_manager.sh"
     if [[ -f "$manager_path" ]]; then
@@ -451,7 +412,6 @@ global_whitelist_manager_load() {
     fi
     return 1
 }
-# ============================================================ #
 
 # Валидация IP или CIDR
 validate_ip_or_cidr() {
@@ -477,19 +437,19 @@ find_log_file() {
             if run_cmd test -f "/var/log/ufw.log" 2>/dev/null; then echo "/var/log/ufw.log"
             elif run_cmd test -f "/var/log/kern.log" 2>/dev/null; then echo "/var/log/kern.log"
             elif run_cmd test -f "/var/log/syslog" 2>/dev/null; then echo "/var/log/syslog"
-            else run_cmd sh -c "journalctl -k --no-pager | grep '\[UFW BLOCK\]' | tail -n 1000 > /tmp/reshala_ufw.log" 2>/dev/null; echo "/tmp/reshala_ufw.log"
+            else run_cmd sh -c "journalctl -k --no-pager | grep '\[UFW BLOCK\]' | tail -n 1000 > /tmp/shaffi_ufw.log" 2>/dev/null; echo "/tmp/shaffi_ufw.log"
             fi
             ;;
         auth)
             if run_cmd test -f "/var/log/auth.log" 2>/dev/null; then echo "/var/log/auth.log"
             elif run_cmd test -f "/var/log/secure" 2>/dev/null; then echo "/var/log/secure"
-            else run_cmd journalctl -t sshd | tail -n 100 > /tmp/reshala_auth.log; echo "/tmp/reshala_auth.log"
+            else run_cmd journalctl -t sshd | tail -n 100 > /tmp/shaffi_auth.log; echo "/tmp/shaffi_auth.log"
             fi
             ;;
         kernel)
             if run_cmd test -f "/var/log/kern.log" 2>/dev/null; then echo "/var/log/kern.log"
             elif run_cmd test -f "/var/log/syslog" 2>/dev/null; then echo "/var/log/syslog"
-            else run_cmd dmesg | tail -n 100 > /tmp/reshala_kern.log; echo "/tmp/reshala_kern.log"
+            else run_cmd dmesg | tail -n 100 > /tmp/shaffi_kern.log; echo "/tmp/shaffi_kern.log"
             fi
             ;;
     esac
@@ -514,7 +474,7 @@ ensure_package() {
 set_config_var() {
     local key="$1"
     local value="$2"
-    local config_file="${SCRIPT_DIR}/config/reshala.conf"
+    local config_file="${SCRIPT_DIR}/config/shaffi.conf"
     if grep -q "^${key}=" "$config_file" 2>/dev/null; then
         sed -i "s|^${key}=.*|${key}=\"${value}\"|" "$config_file"
     else
@@ -524,7 +484,7 @@ set_config_var() {
 
 get_config_var() {
     local key="$1"
-    local config_file="${SCRIPT_DIR}/config/reshala.conf"
+    local config_file="${SCRIPT_DIR}/config/shaffi.conf"
     if [ -f "$config_file" ]; then
         grep "^${key}=" "$config_file" 2>/dev/null | cut -d'=' -f2- | sed 's/"//g'
     fi

@@ -1,28 +1,17 @@
 #!/bin/bash
-#   ( РОДИТЕЛЬ | КЛАВИША | НАЗВАНИЕ | ФУНКЦИЯ | ПОРЯДОК | ГРУППА | ОПИСАНИЕ )
-# @menu.manifest
-# @item( security | w | 🌍 Глобальный Белый Список | show_global_whitelist_menu | 5 | 5 | Единый whitelist для всех модулей защиты. )
+# whitelist_manager.sh — глобальный белый список IP для шейпера, Fail2Ban, UFW и geo-block.
 #
-# whitelist_manager.sh - Глобальный Белый Список (Unified Whitelist)
-#
-# Центральный менеджер IP-адресов, которым доверяют ВСЕ модули:
-#   - eBPF Шейпер (whitelist_map)
-#   - Fail2Ban (ignoreip)
-#   - UFW before.rules (обход Anti-DDoS лимитов)
-#   - Geo-block ipset (обход блокировки стран)
-#
-# API для других модулей:
-#   global_whitelist_get_ips  — Получить массив IP из глобального списка
-#   global_whitelist_add_ip   — Добавить IP и синхронизировать
-#   global_whitelist_remove_ip — Удалить IP и синхронизировать
-#   global_whitelist_sync_all — Принудительная полная синхронизация
-#   global_whitelist_offer    — Предложить использовать глобальный список (вызывается из модулей)
-#
+# API:
+#   global_whitelist_get_ips       — список IP (stdout)
+#   global_whitelist_add_ip IP     — добавить IP и синхронизировать
+#   global_whitelist_remove_ip IP  — удалить IP и синхронизировать
+#   global_whitelist_sync_all      — принудительная синхронизация всех подсистем
+#   global_whitelist_offer         — предложить использовать глобальный список (из модулей)
 
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && exit 1
 
 # --- Конфигурация ---
-GLOBAL_WHITELIST_DIR="/etc/reshala"
+GLOBAL_WHITELIST_DIR="/etc/shaffi"
 GLOBAL_WHITELIST_FILE="${GLOBAL_WHITELIST_DIR}/global-whitelist.txt"
 
 # ============================================================ #
@@ -40,7 +29,7 @@ _gwl_ensure_file() {
         # Создаем шаблон
         cat <<'TEMPLATE' | run_cmd tee "$GLOBAL_WHITELIST_FILE" > /dev/null
 # ══════════════════════════════════════════════════════════
-# Глобальный Белый Список IP (Reshala Unified Whitelist)
+# Глобальный Белый Список IP (Shaffi Unified Whitelist)
 # ══════════════════════════════════════════════════════════
 # Все IP из этого файла автоматически получают обход:
 #   ✓ eBPF Шейпер      — без ограничений скорости
@@ -163,7 +152,7 @@ global_whitelist_prepend_system_ips() {
         if [[ "$first_entry" -eq 1 ]]; then
             if ! echo "$current_content" | grep -q "СИСТЕМНЫЕ IP — НЕ УДАЛЯТЬ"; then
                 new_block+="# ─────────────────────────────────────────────────────────────────
-# ⚠️  СИСТЕМНЫЕ IP — НЕ УДАЛЯТЬ! Добавлено автоматически Reshala.
+# ⚠️  СИСТЕМНЫЕ IP — НЕ УДАЛЯТЬ! Добавлено автоматически Shaffi.
 # Если удалить эти IP — система начнёт блокировать саму себя и свои рабочие процессы.
 # ─────────────────────────────────────────────────────────────────
 "
@@ -308,7 +297,7 @@ _gwl_sync_fail2ban() {
     fi
 
     # Автоматически синхронизируем локальный файл Fail2Ban с глобальным белым списком
-    run_cmd cp -f "$GLOBAL_WHITELIST_FILE" "/etc/reshala/fail2ban-whitelist.txt" 2>/dev/null || true
+    run_cmd cp -f "$GLOBAL_WHITELIST_FILE" "/etc/shaffi/fail2ban-whitelist.txt" 2>/dev/null || true
 
     local ignoreip="127.0.0.1/8 ::1"
     for ip in "${ips[@]}"; do
@@ -359,13 +348,13 @@ PYEOF
 # Синхронизация с eBPF Шейпером
 _gwl_sync_shaper() {
     # Ищем конфиг шейпера
-    local shaper_config_dir="/etc/reshala/traffic_limiter"
+    local shaper_config_dir="/etc/shaffi/traffic_limiter"
     local shaper_whitelist="${shaper_config_dir}/global-whitelist.txt"
-    local ctrl_py="${SCRIPT_DIR}/modules/local/reshala_ctrl.py"
-    local pin_dir="/sys/fs/bpf/reshala/maps"
+    local ctrl_py="${SCRIPT_DIR}/modules/local/shaffi_ctrl.py"
+    local pin_dir="/sys/fs/bpf/shaffi/maps"
 
     if [[ ! -f "$ctrl_py" ]]; then
-        debug_log "GWL_SYNC: reshala_ctrl.py не найден, пропуск шейпера."
+        debug_log "GWL_SYNC: shaffi_ctrl.py не найден, пропуск шейпера."
         return
     fi
 
@@ -394,8 +383,8 @@ _gwl_sync_geoblock() {
 
     # Нам нужно два сета, так как ipset не смешивает v4 и v6
     for family in "inet" "inet6"; do
-        local set_name="reshala_geo_whitelist"
-        [[ "$family" == "inet6" ]] && set_name="reshala_geo_whitelist6"
+        local set_name="shaffi_geo_whitelist"
+        [[ "$family" == "inet6" ]] && set_name="shaffi_geo_whitelist6"
 
         if ! ipset list "$set_name" -terse &>/dev/null; then
             run_cmd ipset create "$set_name" hash:net family "$family" hashsize 256 maxelem 1024 2>/dev/null || true
@@ -406,9 +395,9 @@ _gwl_sync_geoblock() {
     # Распределяем IP по сетам
     for ip in "${ips[@]}"; do
         if [[ "$ip" == *":"* ]]; then
-            run_cmd ipset add reshala_geo_whitelist6 "$ip" 2>/dev/null || true
+            run_cmd ipset add shaffi_geo_whitelist6 "$ip" 2>/dev/null || true
         else
-            run_cmd ipset add reshala_geo_whitelist "$ip" 2>/dev/null || true
+            run_cmd ipset add shaffi_geo_whitelist "$ip" 2>/dev/null || true
         fi
     done
 
@@ -416,11 +405,11 @@ _gwl_sync_geoblock() {
 }
 
 # Синхронизация с UFW Anti-DDoS (before.rules)
-# Добавляет whitelist IP в блок Reshala Anti-DDoS если он уже настроен
+# Добавляет whitelist IP в блок Shaffi Anti-DDoS если он уже настроен
 _gwl_sync_ufw() {
     local ips=("$@")
     local before_rules="/etc/ufw/before.rules"
-    local antiddos_start="# --- НАЧАЛО: Reshala Anti-DDoS ---"
+    local antiddos_start="# --- НАЧАЛО: Shaffi Anti-DDoS ---"
 
     if [[ ! -f "$before_rules" ]]; then
         debug_log "GWL_SYNC: UFW before.rules не найден, пропуск."
@@ -454,7 +443,7 @@ import sys
 wl = sys.argv[1]
 with open('/etc/ufw/before.rules', 'r') as f:
     content = f.read()
-target = '# --- НАЧАЛО: Reshala Anti-DDoS ---'
+target = '# --- НАЧАЛО: Shaffi Anti-DDoS ---'
 if target in content:
     content = content.replace(target, wl.replace('\\n', '\n') + target, 1)
     with open('/etc/ufw/before.rules', 'w') as f:
@@ -536,13 +525,13 @@ show_global_whitelist_menu() {
             printf_description "  ${C_GRAY}○${C_RESET} Fail2Ban (не установлен)"
         fi
         # Шейпер
-        if [[ -d "/sys/fs/bpf/reshala/maps" ]]; then
+        if [[ -d "/sys/fs/bpf/shaffi/maps" ]]; then
             printf_description "  ${C_GREEN}✓${C_RESET} eBPF Шейпер (whitelist_map)"
         else
             printf_description "  ${C_GRAY}○${C_RESET} eBPF Шейпер (движок не запущен)"
         fi
         # Geo-block
-        if command -v ipset &>/dev/null && ipset list reshala_geo_whitelist -terse &>/dev/null; then
+        if command -v ipset &>/dev/null && ipset list shaffi_geo_whitelist -terse &>/dev/null; then
             printf_description "  ${C_GREEN}✓${C_RESET} Geo-Block (ipset)"
         else
             printf_description "  ${C_GRAY}○${C_RESET} Geo-Block (не активен)"

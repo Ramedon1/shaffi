@@ -1,9 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: 💬 Чат
-    url: https://github.com/DonMatteoVPN/Reshala-Remnawave-Bedolaga/discussions
-    about: Оперативные вопросы лучше решать в чате с братвой.
-    
-  - name: 📚 Документация (Wiki)
-    url: https://github.com/DonMatteoVPN/Reshala-Remnawave-Bedolaga/blob/dev/docs/
-    about: Сначала читай мануал, потом пиши тикет.
