@@ -731,7 +731,7 @@ ExecStartPre=${bpftool_path} --debug prog loadall ${TL_BPF_OBJ_PATH} ${PIN_PROGS
 ExecStartPre=-${ls_path} -l ${PIN_PROGS}
 
 # === ПОДКЛЮЧЕНИЕ ШЕЙПЕРА (Автоматический поиск имен файлов) ===
-ExecStartPre=${tc_path} qdisc add dev ${IFACE} root fq
+ExecStartPre=${tc_path} qdisc add dev ${IFACE} root fq flow_limit 10000 limit 1000000
 ExecStartPre=${tc_path} qdisc add dev ${IFACE} clsact
 # Ищем файл для Egress (Download): ищем 'down' в названии
 ExecStartPre=/bin/bash -c '\
@@ -814,11 +814,17 @@ _tl_show_status() {
 
 _tl_restart_ebpf_engine() {
     info "Перезагрузка..."; _tl_compile_bpf || return
-    
+
     # Принудительно загружаем модули ядра
     modprobe cls_bpf 2>/dev/null || true
     modprobe sch_fq 2>/dev/null || true
-    
+
+    # Перегенерируем service-файл (подтягивает актуальный fq-конфиг и пути)
+    if [[ -f "${TL_CONFIG_DIR}/ebpf_config.conf" ]]; then
+        _tl_generate_ebpf_service_file > "${TL_SERVICE_PATH}"
+        systemctl daemon-reload
+    fi
+
     systemctl unmask "${TL_SERVICE_NAME}" &>/dev/null || true
     systemctl restart "${TL_SERVICE_NAME}" && ok "Перезапущено."
 }

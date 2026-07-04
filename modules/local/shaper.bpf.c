@@ -256,7 +256,7 @@ static __always_inline int process_packet(
         if (now > departure_time) departure_time = now;
         departure_time += delay_ns;
 
-        if (departure_time - now > 2000000000ULL) return TC_ACT_SHOT; /* > 2s ahead → drop */
+        if (departure_time - now > 50000000ULL) return TC_ACT_SHOT; /* > 50ms ahead → drop */
 
         state->last_departure_time = departure_time;
         skb->tstamp = departure_time;
@@ -266,9 +266,9 @@ static __always_inline int process_packet(
         __u64 departure_time = state->last_departure_time;
         if (now > departure_time) departure_time = now;
         
-        /* 200ms burst buffer. If we push the bucket $>200ms into the future, we drop. */
-        if (departure_time - now > 200000000ULL) {
-            return TC_ACT_SHOT; /* TCP window reduction */
+        /* 50ms burst buffer. If we push the bucket >50ms into the future, we drop. */
+        if (departure_time - now > 50000000ULL) {
+            return TC_ACT_SHOT;
         }
         
         state->last_departure_time = departure_time + delay_ns;
