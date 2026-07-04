@@ -731,7 +731,7 @@ ExecStartPre=${bpftool_path} --debug prog loadall ${TL_BPF_OBJ_PATH} ${PIN_PROGS
 ExecStartPre=-${ls_path} -l ${PIN_PROGS}
 
 # === ПОДКЛЮЧЕНИЕ ШЕЙПЕРА (Автоматический поиск имен файлов) ===
-ExecStartPre=${tc_path} qdisc add dev ${IFACE} root fq flow_limit 10000 limit 1000000
+ExecStartPre=${tc_path} qdisc add dev ${IFACE} root fq orphan_mask 0 flow_limit 10000 limit 1000000
 ExecStartPre=${tc_path} qdisc add dev ${IFACE} clsact
 # Ищем файл для Egress (Download): ищем 'down' в названии
 ExecStartPre=/bin/bash -c '\
